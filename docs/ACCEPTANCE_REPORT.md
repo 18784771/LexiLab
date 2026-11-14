@@ -1,13 +1,15 @@
 # LexiLab 开发验收报告
 
 验收日期：2026-11-14  
-环境：WSL2 / Linux，Python 3.13.9（venv），ffmpeg 6.1.1（含 libflite），ffplay；无 `/dev/snd` 音频设备；未配置 DeepSeek API Key。
+环境：WSL2 / Linux，Python 3.13.9（当前 venv 运行测试）；项目提供 Conda 环境定义 `environment.yml`（Python 3.12，`conda env create --dry-run` 通过）；ffmpeg 6.1.1（含 libflite），ffplay；无 `/dev/snd` 音频设备；未配置 DeepSeek API Key。
 
 ## 1. 结论摘要
 
 | 交付项 | 结论 |
 |---|---|
 | 基础离线版本 | **PASS** |
+| Textual 全键盘交互 + Power Mode 特效 | **PASS** |
+| Conda 环境定义 | **PASS**（dry-run 验证） |
 | AI 扩展模块（实现 + Mock 验证） | **PASS** |
 | AI 真实远程教学质量 | **BLOCKED**（无 API Key，未发起真实请求） |
 | 语音扩展：合成与缓存 | **PASS** |
@@ -28,12 +30,18 @@
 | 2 | 未安装语音扩展依赖时正常启动 | PASS | `pyttsx3` 未被导入；语音自动检测失败时功能隐藏 |
 | 3 | 没有 API Key 时正常学习 | PASS | 默认 `[ai].enabled=false`；`lexi learn` 完成真实卡片与复习日志写入 |
 | 4 | 完全断网时正常学习 | PASS | 学习路径不依赖网络；默认关闭 AI，启动不联网 |
-| 5 | 主界面自动隐藏不可用功能 | PASS | 无 AI/无语音时菜单仅含基础项与 `[c] 配置` |
+| 5 | 主界面自动隐藏不可用功能 | PASS | 无 AI/无语音时菜单仅含基础项与配置入口 |
 | 6 | 每日计划不含不可执行任务 | PASS | `Planner` 只产生词汇/复习/筛选抽查/强化项 |
 | 7 | 基础记忆与学习功能 | PASS | 真实六级词库、FSRS、复习、新词、筛选、拼写、语境填空、个人生词 |
 | 8 | 记录、统计、备份恢复 | PASS | 自动化测试 + 实际 `lexi backup`；事务回滚、SHA-256、`integrity_check` |
 | 9 | 不产生未经授权的 AI 请求 | PASS | `AIService.available()` 先检查 `enabled`；测试确认禁用时 provider 调用次数为 0 |
-| 10 | 基础模块测试 | PASS | 76 项自动化测试全部通过 |
+| 10 | 基础模块测试 | PASS | 92 项自动化测试全部通过 |
+| 11 | Textual 全键盘学习 | PASS | `run_test` 覆盖新词、输入、评分、反馈、菜单、`Ctrl+Q`；文本输入不触发快捷键 |
+| 12 | Power Mode 特效 | PASS | 粒子有界、快速输入增强、答错局部抖动、答对脉冲、Combo 仅未提示正确增加 |
+| 13 | 特效不阻塞、可关闭 | PASS | `Ctrl+T` 即时开关；timer/worker 异步执行；关闭后学习落库不变 |
+| 14 | TerminalTextEffects 适配 | PASS | 逐帧读取 ANSI 并转 Rich `Text`；测试确认不直接写终端 |
+| 15 | 写作/阅读 Textual 流程 | PASS（Mock AI） | 加载状态、`Ctrl+Enter` 提交、粒子、批改、结果返回 |
+| 16 | Conda 环境 | PASS | `conda env create -f environment.yml --dry-run` 退出码 0；Python 3.12 + 核心依赖 |
 
 ### 真实词库与词典
 
@@ -108,7 +116,7 @@ AI 状态区分：`disabled / unconfigured / unavailable / ready / error`。`rea
 pytest -q
 ```
 
-结果：**76 passed**。覆盖：
+结果：**92 passed**。覆盖：
 
 - 真实六级词库导入、幂等、词义合并、异常行。
 - ECDICT CSV 导入、换行解码、lemma 回退、词形变化。
@@ -122,13 +130,17 @@ pytest -q
 - 备份/恢复、篡改检测、恢复前快照、词库重导入不破坏学习数据。
 - CLI：全部命令 `--help`、doctor、AI 关闭提示、音频关闭提示、配置写入、真实离线学习、可选 SDK 启动未导入。
 - 缓存材料离线查看、非交互菜单隐藏 AI。
+- Textual：新词会话、输入不触发快捷键、关闭粒子后仍可完成、`Ctrl+Q` 保留未完成题、菜单方向键/数字键、`Ctrl+T` 不改变输入、提示答对不计连击。
+- Power Mode：粒子有界、快速输入增强、错误抖动、正确脉冲、Combo 状态。
+- 写作 Textual：Mock AI 加载、`Ctrl+Enter` 提交、粒子、反馈与结果返回。
+- TTE：逐帧 ANSI 数据可转换为 Rich `Text`，不直接写终端。
 
 ## 7. 交付物
 
 - 可运行 Python 包（`src/lexilab`）与 `lexi` 命令。
-- `requirements.txt`、`requirements-ai.txt`、`requirements-audio.txt`、`requirements-dev.txt`、`pyproject.toml`。
+- `environment.yml`（Conda 环境）、`requirements.txt`、`requirements-ai.txt`、`requirements-audio.txt`、`requirements-dev.txt`、`pyproject.toml`。
 - 真实六级词库与 ECDICT 导入工具。
-- FSRS 记忆系统、学习流程、CLI/TUI、本地训练、AI 训练、语音、统计、备份恢复。
+- FSRS 记忆系统、学习流程、Textual 全键盘 TUI、Power Mode 特效、本地训练、AI 训练、语音、统计、备份恢复。
 - `README.md`、`docs/ARCHITECTURE.md`、`docs/LEARNING_DESIGN.md`、`docs/INTERACTION_DESIGN.md`、`docs/DATA_SCHEMA.md`、本报告。
 - 自动化测试与真实数据验收记录。
 
@@ -138,4 +150,6 @@ pytest -q
 - 默认学习参数与目标保持率是初始建议，不是科学最优值。
 - MockProvider 只用于行为验证，不代表真实模型教学质量；真实 DeepSeek 调用因无密钥标记 BLOCKED。
 - 合成语音不等同真实交流环境；本环境无法确认实际可听输出。
+- Textual 交互通过 `App.run_test` 自动化验证；真实 Windows Terminal / PowerShell 的
+  字体、输入法与终端尺寸差异仍建议人工冒烟。
 - 阅读/写作的开放题批改依赖 AI；关闭 AI 后仅能离线查看历史材料与参考答案，不做自动批改。

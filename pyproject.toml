@@ -17,6 +17,8 @@ dependencies = [
   "pydantic==2.14.3",
   "fsrs==6.3.3",
   "tomli-w==1.2.0",
+  "textual==8.2.8",
+  "terminaltexteffects==0.15.0",
 ]
 
 [project.scripts]

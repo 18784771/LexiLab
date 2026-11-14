@@ -238,6 +238,7 @@ class TerminalUI:
     # -------------------------------------------------------------- recognition
     def ask_recognition(self, entry: WordEntry, position: str, *, mode: str = "review") -> RatingResult:
         started = time.monotonic()
+        hinted = False
         label = self._mode_label(mode)
         self._clear()
         self._header(label, position)
@@ -250,6 +251,7 @@ class TerminalUI:
                 return RatingResult(skipped=True, duration_ms=int((time.monotonic() - started) * 1000))
             if key == "p":
                 self._play(entry.headword)
+                hinted = True
                 continue
             if key == "e":
                 if not self._show_details(entry):
@@ -267,12 +269,15 @@ class TerminalUI:
             key = self.io.read_char()
             if key in {"1", "2", "3", "4"}:
                 return RatingResult(
-                    rating=int(key), duration_ms=int((time.monotonic() - started) * 1000)
+                    rating=int(key),
+                    hinted=hinted,
+                    duration_ms=int((time.monotonic() - started) * 1000),
                 )
             if key in {"q", "eof", "esc"}:
                 return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))
             if key == "p":
                 self._play(entry.headword)
+                hinted = True
             elif key == "e":
                 if not self._show_details(entry):
                     return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))

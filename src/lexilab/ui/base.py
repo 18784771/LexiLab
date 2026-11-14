@@ -34,6 +34,7 @@ class FeedbackView:
     diagnosis: str = ""
     reference_sentence: str = ""
     suggested_rating: int | None = None
+    hinted: bool = False
     extra: dict = field(default_factory=dict)
 
 

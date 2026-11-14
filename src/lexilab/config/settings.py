@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
+from typing import Literal
 
 import tomli_w
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -50,6 +51,18 @@ player = "auto"
 language = "zh"
 color = true
 show_timer = true
+textual = true
+
+[effects]
+enabled = true
+intensity = "normal"
+typing_particles = true
+shake_on_error = true
+pulse_on_correct = true
+combo = true
+startup_animation = true
+reduced_motion = false
+max_particles = 240
 """
 
 
@@ -107,6 +120,19 @@ class UISettings(_Base):
     language: str = "zh"
     color: bool = True
     show_timer: bool = True
+    textual: bool = True
+
+
+class EffectsSettings(_Base):
+    enabled: bool = True
+    intensity: Literal["off", "minimal", "normal", "power"] = "normal"
+    typing_particles: bool = True
+    shake_on_error: bool = True
+    pulse_on_correct: bool = True
+    combo: bool = True
+    startup_animation: bool = True
+    reduced_motion: bool = False
+    max_particles: int = Field(default=240, ge=0, le=1000)
 
 
 class Settings(_Base):
@@ -115,6 +141,7 @@ class Settings(_Base):
     ai: AISettings = Field(default_factory=AISettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
     ui: UISettings = Field(default_factory=UISettings)
+    effects: EffectsSettings = Field(default_factory=EffectsSettings)
 
     # Runtime-only fields.
     data_dir: Path = Field(default_factory=default_data_dir)
@@ -193,7 +220,7 @@ def write_default_config(path: str | Path, *, force: bool = False) -> Path:
 def save_settings(settings: Settings, path: str | Path) -> Path:
     target = Path(path).expanduser()
     data = settings.model_dump(
-        include={"general", "learning", "ai", "audio", "ui"},
+        include={"general", "learning", "ai", "audio", "ui", "effects"},
         exclude_none=True,
     )
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -213,4 +240,6 @@ def config_summary(settings: Settings) -> dict[str, object]:
         "ai_enabled": settings.ai.enabled,
         "tts_provider": settings.audio.provider,
         "tts_voice": settings.audio.voice,
+        "effects": f"{settings.effects.intensity}" + (" (on)" if settings.effects.enabled else " (off)"),
+        "textual_ui": settings.ui.textual,
     }

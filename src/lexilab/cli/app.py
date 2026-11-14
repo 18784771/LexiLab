@@ -43,6 +43,7 @@ def main(
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="配置文件路径"),
     data_dir: Optional[Path] = typer.Option(None, "--data-dir", help="覆盖数据目录"),
     no_color: bool = typer.Option(False, "--no-color", is_flag=True, help="禁用颜色"),
+    no_tui: bool = typer.Option(False, "--no-tui", is_flag=True, help="使用传统行式界面"),
 ) -> None:
     """启动 LexiLab。无子命令时显示主界面。"""
     try:
@@ -54,6 +55,8 @@ def main(
         settings.data_dir = data_dir.expanduser().resolve()
     if no_color:
         settings.ui.color = False
+    if no_tui:
+        settings.ui.textual = False
     try:
         tc.obj = AppContext(settings)
     except Exception as exc:

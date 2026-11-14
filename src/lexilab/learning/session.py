@@ -88,13 +88,14 @@ class LearningSession:
             quit=quit_requested,
             minutes=elapsed,
         )
-        self.ui.show_summary(
-            {
-                **result.__dict__,
-                "pending": len(queue),
-                "message": "已保存，下次运行 lexi study 可继续" if quit_requested else "本次学习完成",
-            }
-        )
+        if not quit_requested:
+            self.ui.show_summary(
+                {
+                    **result.__dict__,
+                    "pending": len(queue),
+                    "message": "已保存，下次运行 lexi study 可继续" if quit_requested else "本次学习完成",
+                }
+            )
         return result
 
     def _load_pending(self, session_id: str) -> list[RunItem]:
@@ -233,6 +234,7 @@ class LearningSession:
             diagnosis=judge.message if judge.error_type == "spelling" else "",
             reference_sentence=entry.examples[0].sentence_en if entry.examples else "",
             suggested_rating=suggested,
+            hinted=result.hinted,
         )
         rating = self.ui.show_feedback(feedback)
         self.repo.add_training_log(

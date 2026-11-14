@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -248,6 +249,26 @@ def _plan_summary(ctx: AppContext, plan) -> None:
         ctx.console.print(Text(f"  · {note}", style="dim"))
 
 
+def _textual_enabled(ctx: AppContext) -> bool:
+    if not ctx.settings.ui.textual or not ctx.io.interactive:
+        return False
+    if os.environ.get("LEXILAB_NO_TUI"):
+        return False
+    try:
+        import textual  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _execute_session(ctx: AppContext, session_id: str):
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_app import run_textual_session
+
+        return run_textual_session(ctx, session_id)
+    return ctx.learning_session().run(session_id)
+
+
 def _run_session(ctx: AppContext, kind: str, *, minutes: int | None, new_count: int | None):
     open_session = ctx.repo.get_open_session(kind=kind)
     if open_session:
@@ -267,7 +288,7 @@ def _run_session(ctx: AppContext, kind: str, *, minutes: int | None, new_count: 
                     return None
                 resume = key != "n"
             if resume:
-                return ctx.learning_session().run(open_session["id"])
+                return _execute_session(ctx, open_session["id"])
             ctx.repo.abandon_session(open_session["id"])
 
     plan = ctx.planner.build(kind, minutes=minutes, new_count=new_count)
@@ -278,7 +299,7 @@ def _run_session(ctx: AppContext, kind: str, *, minutes: int | None, new_count: 
         return None
     _plan_summary(ctx, plan)
     session_id = ctx.repo.create_session(kind, plan)
-    return ctx.learning_session().run(session_id)
+    return _execute_session(ctx, session_id)
 
 
 def study_action(
@@ -502,6 +523,11 @@ def import_action(
 
 # ------------------------------------------------------------------- drills
 def drill_action(ctx: AppContext, kind: str, *, count: int = 10, words: list[str] | None = None) -> int:
+    if _textual_enabled(ctx) and kind in {"spelling", "recall"} and words is None:
+        from lexilab.ui.textual_drill import run_textual_drill
+
+        result = run_textual_drill(ctx, kind, count)
+        return 0 if result is not None else 1
     session = DrillSession(
         ctx.materials, ctx.repo, ctx.vocab, ctx.audio, ctx.console, ctx.io
     )
@@ -585,6 +611,13 @@ def read_action(
     if not ai_usable(caps):
         ctx.console.print(Text(ai_message(caps, "AI 阅读"), style="yellow"))
         return 1
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_reading import run_textual_reading
+
+        result = run_textual_reading(
+            ctx, topic=topic, difficulty=difficulty, force_new=force_new, words=words
+        )
+        return 0 if result is not None else 1
     session = ReadingSession(ctx.materials, ctx.repo, ctx.vocab, ctx.console, ctx.io)
     try:
         result = session.run(
@@ -621,6 +654,18 @@ def listen_action(
         reason = caps["tts"].reason or caps["player"].reason
         ctx.console.print(Text(f"AI 听力需要可用音频模块：{reason}", style="yellow"))
         return 1
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_listening import run_textual_listening
+
+        result = run_textual_listening(
+            ctx,
+            topic=topic,
+            difficulty=difficulty,
+            count=count,
+            force_new=force_new,
+            words=words,
+        )
+        return 0 if result is not None else 1
     session = ListeningSession(
         ctx.materials, ctx.repo, ctx.vocab, ctx.audio, ctx.console, ctx.io
     )
@@ -654,6 +699,13 @@ def write_action(
     if not ai_usable(caps):
         ctx.console.print(Text(ai_message(caps, "AI 写作"), style="yellow"))
         return 1
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_writing import run_textual_writing
+
+        result = run_textual_writing(
+            ctx, level=level, topic=topic, force_new=force_new, words=words
+        )
+        return 0 if result is not None else 1
     session = WritingSession(ctx.materials, ctx.repo, ctx.console, ctx.io)
     try:
         result = session.run(level=level, topic=topic, target_words=words, force_new=force_new)
@@ -1145,6 +1197,58 @@ def vocab_words_action(ctx: AppContext, *, limit: int = 30, search: str = "") ->
 
 
 # ---------------------------------------------------------------- main menu
+def _textual_options(ctx: AppContext) -> list[tuple[str, str]]:
+    caps = ctx.capabilities
+    options: list[tuple[str, str]] = [
+        ("study", "开始今日学习"),
+        ("review", "单词复习"),
+        ("learn", "新词学习"),
+    ]
+    if audio_ready(caps):
+        options.append(("audio", "听音辨义 / 听写"))
+    if ai_usable(caps):
+        options.extend([("read", "AI 阅读"), ("write", "AI 写作")])
+    options.extend(
+        [
+            ("stats", "学习统计"),
+            ("vocab", "词库管理"),
+            ("screen", "快速筛选"),
+        ]
+    )
+    if caps["cached_materials"].ready:
+        options.append(("materials", "本地材料"))
+    options.extend([("config", "配置"), ("q", "退出")])
+    return options
+
+
+def _dispatch_menu_key(ctx: AppContext, key: str) -> bool:
+    if key in {"study", "enter"}:
+        study_action(ctx)
+    elif key in {"review", "1"}:
+        review_action(ctx)
+    elif key in {"learn", "2"}:
+        learn_action(ctx)
+    elif key in {"audio", "3"}:
+        audio_drill_action(ctx, "listening")
+    elif key in {"read", "4"}:
+        read_action(ctx)
+    elif key in {"write", "5"}:
+        write_action(ctx)
+    elif key in {"stats", "6"}:
+        stats_action(ctx)
+    elif key in {"vocab", "7"}:
+        vocab_list_action(ctx)
+    elif key in {"screen", "8"}:
+        screen_action(ctx)
+    elif key in {"materials", "9"}:
+        materials_action(ctx)
+    elif key in {"config", "c"}:
+        config_action(ctx)
+    elif key in {"q", "eof", "esc"}:
+        return False
+    return True
+
+
 def main_menu_action(ctx: AppContext) -> int:
     if not ctx.has_vocabulary():
         ctx.console.print(Text("尚未初始化词库。请先运行: lexi init", style="yellow"))
@@ -1153,6 +1257,22 @@ def main_menu_action(ctx: AppContext) -> int:
         summary = ctx.analytics.summary()
         render_main_menu(ctx.console, summary, ctx.capabilities)
         ctx.console.print(Text("非交互环境：请使用 lexi --help 查看命令。", style="dim"))
+        return 0
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_app import run_textual_menu
+
+        while True:
+            key = run_textual_menu(ctx, _textual_options(ctx))
+            if not key:
+                break
+            try:
+                if not _dispatch_menu_key(ctx, key):
+                    break
+            except (AIError, TTSUnavailable) as exc:
+                ctx.console.print(Text(str(exc), style="yellow"))
+            except KeyboardInterrupt:
+                ctx.console.print(Text("已退出。", style="dim"))
+                break
         return 0
     while True:
         summary = ctx.analytics.summary()
@@ -1163,29 +1283,7 @@ def main_menu_action(ctx: AppContext) -> int:
         key = ctx.io.read_char()
         ctx.console.print()
         try:
-            if key == "enter":
-                study_action(ctx)
-            elif key == "1":
-                review_action(ctx)
-            elif key == "2":
-                learn_action(ctx)
-            elif key == "3":
-                audio_drill_action(ctx, "listening")
-            elif key == "4":
-                read_action(ctx)
-            elif key == "5":
-                write_action(ctx)
-            elif key == "6":
-                stats_action(ctx)
-            elif key == "7":
-                vocab_list_action(ctx)
-            elif key == "8":
-                screen_action(ctx)
-            elif key == "9":
-                materials_action(ctx)
-            elif key == "c":
-                config_action(ctx)
-            elif key in {"q", "eof", "esc"}:
+            if not _dispatch_menu_key(ctx, key):
                 break
         except (AIError, TTSUnavailable) as exc:
             ctx.console.print(Text(str(exc), style="yellow"))

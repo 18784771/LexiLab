@@ -46,3 +46,16 @@ player = "auto"
 language = "zh"
 color = true
 show_timer = true
+textual = true
+
+[effects]
+# off | minimal | normal | power
+enabled = true
+intensity = "normal"
+typing_particles = true
+shake_on_error = true
+pulse_on_correct = true
+combo = true
+startup_animation = true
+reduced_motion = false
+max_particles = 240

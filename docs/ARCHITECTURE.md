@@ -21,8 +21,8 @@ LexiLab 是一个本地单机 CLI 英语学习工具。核心目标是：用成�
 └───────────────┬────────────────────────────┘
                 │
 ┌───────────────▼────────────────────────────┐
-│ UI (Rich + Prompt Toolkit + tty)           │
-│ 页面渲染、按键/文本输入、会话适配器         │
+│ UI (Textual + Rich + Prompt Toolkit)       │
+│ 全键盘 TUI、Power Mode 特效、会话适配器     │
 └───────────────┬────────────────────────────┘
                 │ SessionUI 协议
 ┌───────────────▼────────────────────────────┐
@@ -54,11 +54,36 @@ LexiLab 是一个本地单机 CLI 英语学习工具。核心目标是：用成�
 
 ### 2.2 UI 层（`lexilab/ui`）
 
-- `TerminalUI`：真实终端实现，基于 Rich 渲染、`tty`/`msvcrt` 单键读取、`input()` 文本输入。
+- `TextualSessionUI` / `LexiLabSessionApp`：真实 TTY 下的全键盘界面。学习会话运行在
+  Textual worker 线程中，UI 通过 `call_from_thread` 展示页面并等待用户输入；输入、
+  评分、提示、发音、退出均不需要鼠标。
+- `LexiLabMenuApp`：动态主菜单；`↑/↓` 与数字键选择，`Enter` 进入，`Ctrl+P` 命令面
+  板，`Ctrl+Q` 退出。
+- `LexiLabDrillApp` / `LexiLabWritingApp` / `LexiLabReadingApp` /
+  `LexiLabListeningApp`：拼写、中译英、写作、阅读、听力的独立 Textual 界面。
+- `TerminalUI`：`--no-tui` 或非 TTY 环境下的行式回退实现，基于 Rich、`tty`/`msvcrt`
+  与 `input()`。
 - `ScriptedUI`（测试）：按脚本返回输入，供学习流程测试使用。
 - 学习流程只依赖 `SessionUI` 协议，因此记忆与调度逻辑可以在无终端环境中测试。
 
-关键原则：单键快捷状态和文本输入状态严格分离。进入文本输入后，`p/q/s` 就是普通字母。
+关键原则：单键快捷状态和文本输入状态严格分离。进入文本输入后，`p/q/s` 就是普通字
+母；全局快捷键由 Textual binding 统一处理，不使用 `readchar` 轮询。
+
+#### 2.2.1 特效引擎（`lexilab/ui/effects`）
+
+- `EffectsEngine` 只接收表现事件（`KEY_TYPED`、`ANSWER_CORRECT`、
+  `ANSWER_INCORRECT`、`COMBO_INCREASED`、`CARD_CHANGED`、`SESSION_COMPLETED`、
+  `AI_GENERATING`），不写数据库、不调用 FSRS、不改变评分。
+- `ParticleSystem` 有严格粒子上限；`presets.py` 将配置映射为
+  `off/minimal/normal/power` 运行时，`max_particles` 再受配置上限约束。
+- `PowerInput` / `PowerTextArea` 只在输入变化时触发粒子，不改写用户文本；快速输入可
+  增强粒子密度，但仍有上限。
+- 抖动、脉冲、Combo 更新全部通过 Textual timer/worker 完成，不使用
+  `time.sleep()`，不直接清屏或写 stdout，因此不会阻塞下一题。
+- `TTEAdapter` 将 TerminalTextEffects 的帧（ANSI 字符串）转换为 Rich `Text` 后更新
+  Textual 控件；装饰动画失败时静默降级，不影响学习流程。
+- Combo 只在“未使用提示且自动判定正确”时增加；提示、跳过、错误均清零。Combo 与
+  FSRS 状态完全解耦。
 
 ### 2.3 学习引擎（`lexilab/learning`）
 
@@ -170,21 +195,34 @@ Planner 选词
 ```
 cli → ui / services
 ui → services (Model/View) ; ui 不依赖具体 AI
+ui.effects → 纯表现层事件 ; 不依赖 storage / fsrs
 learning → memory / vocabulary / storage 协议
 memory → fsrs + storage
 ai → schemas/prompts ; 不依赖 storage
 storage → sqlite3 ; 不含学习策略
 ```
 
-## 7. 测试策略
+## 7. 环境与依赖
+
+- Python 环境由 **Conda** 创建和管理（`environment.yml`，环境名 `lexilab`）；包依赖
+  使用 pip 安装。
+- 核心依赖：Typer、Rich、Prompt Toolkit、Pydantic、Py-FSRS、Textual、
+  TerminalTextEffects、tomli-w。
+- `requirements-ai.txt`（openai）与 `requirements-audio.txt`（pyttsx3）保持可选；缺失
+  时对应能力显示为不可用，不影响启动。
+- `--no-tui` 或非 TTY 自动回退到 Rich 行式界面。
+
+## 8. 测试策略
 
 - 单元：词条解析、答案判定、词形覆盖、FSRS 封装、Planner 规则。
 - 集成：导入幂等、事务回滚、会话恢复、材料缓存、备份恢复。
-- 交互：脚本化 UI 验证快捷键与文本输入分离；非 TTY 回退。
+- 交互：Textual `run_test` 验证全键盘操作、输入与快捷键隔离、Ctrl+T 特效开关、提示
+  不计连击、Ctrl+Q 保留未完成题、菜单方向键与 TTE 帧适配；非 TTY 回退。
 - AI：MockProvider、无效 JSON、空响应、超时、有限重试、覆盖率不足。
-- E2E（可选，真实网络/密钥）：真实导入、真实 DeepSeek 调用、真实 TTS。默认测试不消耗付费额度。
+- E2E（可选，真实网络/密钥）：真实导入、真实 DeepSeek 调用、真实 TTS。默认测试不
+  消耗付费额度。
 
-## 8. 可选能力与功能分级
+## 9. 可选能力与功能分级
 
 系统能力分为三层，并由 `lexilab/capabilities.py` 的轻量 `CapabilityRegistry` 统一检测：
 
@@ -206,7 +244,7 @@ storage → sqlite3 ; 不含学习策略
 
 依赖拆分：`requirements.txt`（核心）、`requirements-ai.txt`（openai）、`requirements-audio.txt`（pyttsx3）、`requirements-dev.txt`（测试）。`pyproject.toml` 的 optional extras 与之一致。
 
-## 9. 依赖方向补充
+## 10. 依赖方向补充
 
 - `capabilities` 只依赖配置、仓储与可选的音频服务状态，不反向依赖 CLI。
 - 动态菜单由 UI 根据能力字典生成，不直接探测依赖。

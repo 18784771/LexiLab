@@ -8,56 +8,61 @@ LexiLab 首先是一个完整的离线背单词工具：导入真实六级词库
 - 语音增强：检测到本地 TTS 与播放器时启用。
 - AI 增强：用户显式启用并配置后才可能发起请求。
 
-## 1. 安装
+## 1. 安装（Conda 管理 Python 环境）
 
-要求 Python 3.11+。统一使用 `pip` 和 `venv`。
-
-### Linux / macOS / WSL
+要求 Python 3.11+。项目统一使用 **Conda 创建/管理 Python 环境**，环境内的依赖仍由 `pip` 安装。
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+conda env create -f environment.yml
+conda activate lexilab
+pip install -e .
+```
+
+`environment.yml` 已包含核心运行依赖（Typer、Rich、Prompt Toolkit、Pydantic、Py-FSRS、Textual、TerminalTextEffects、tomli-w）。如果修改了 `requirements.txt`，也可以重新执行：
+
+```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### Windows PowerShell
+### Windows PowerShell / CMD
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate lexilab
 pip install -e .
 ```
 
-如果 PowerShell 阻止脚本执行，可先执行：
+如果 PowerShell 阻止 conda 的初始化脚本，可先执行：
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+conda init powershell
 ```
 
-### Windows CMD
-
-```bat
-python -m venv .venv
-.venv\Scripts\activate.bat
-pip install -r requirements.txt
-pip install -e .
-```
+然后重新打开终端，再运行 `conda activate lexilab`。
 
 ### WSL
 
-在 WSL 中使用 Linux 虚拟环境，不要把 Windows 的 `.venv` 与 WSL 混用：
-
 ```bash
 cd /mnt/e/LexiLab
+conda env create -f environment.yml
+conda activate lexilab
+pip install -e .
+```
+
+在 WSL 中使用 WSL 自己的 Conda 环境，不要把 Windows 的 Python/Conda 环境与 WSL 混用。如果 `/mnt/e` 上的文件权限或性能异常，可把项目复制到 WSL 家目录后安装。
+
+### 不使用 Conda 时的兼容方式
+
+如果当前机器没有 Conda，也可以使用 `venv` 作为临时替代；项目本身不依赖 Conda 专有包：
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
 
-如果 `/mnt/e` 上的文件权限或性能异常，可把项目复制到 WSL 家目录后安装。
 
 ## 2. 可选扩展
 
@@ -165,6 +170,37 @@ lexi restore <path> --yes    # 恢复
 
 所有命令都支持 `--help`。
 
+### 全键盘与 Textual 界面
+
+在真实 TTY 中运行时，`lexi` 与学习会话默认使用 Textual 全键盘界面；非 TTY/CI 自动使用行式界面。可用 `lexi --no-tui` 强制旧界面。
+
+| 按键 | 作用 |
+|---|---|
+| `Enter` | 提交 / 下一步 / 翻面（界面会标注当前含义） |
+| `Space` | 翻开单词卡片 |
+| `1`–`4` | 记忆评分 / 菜单快捷选择 |
+| `↑` / `↓` | 菜单导航 |
+| `Tab` / `Shift+Tab` | 切换焦点 |
+| `Esc` | 取消 / 返回 |
+| `Ctrl+P` | 全局命令面板 |
+| `Ctrl+Q` | 保存并退出 |
+| `Ctrl+Enter` | 提交多行写作 |
+| `Ctrl+T` | 开/关动画特效 |
+| `F1` | 当前题提示 |
+| `F2` | 播放发音 |
+| `F3` | 听力重播 |
+
+文本输入状态与全局快捷键严格分离：在英文输入框中，`p`、`q`、`s` 等字母只是输入内容，不会触发快捷键。
+
+### 打字特效与连击
+
+- 拼写、中译英、写作输入时，输入区域下方产生有界字符粒子；快速连续输入会适度增强，但有最大数量限制。
+- 答错时仅输入区域/题目区域产生约 200ms 的局部左右抖动和红色边框，不抖动整个终端。
+- 答对时绿色脉冲、粒子与进度/Combo 更新；动画不阻塞下一题。
+- 只有**未使用提示的独立答对**才增加 Combo；使用提示、跳过或查看答案会中断连击。
+- Combo 仅用于反馈，不参与 FSRS 计算，也不影响记忆评分。
+- `[effects]` 配置支持 `off`、`minimal`、`normal`、`power`；关闭后所有学习功能仍正常。
+
 ### 复习评分
 
 `1` Again、`2` Hard、`3` Good、`4` Easy。`Hard` 是成功回忆但很困难，不是答错；完全忘记或看答案后才想起应记 `Again`。
@@ -232,6 +268,29 @@ data/
 - 恢复前会校验 manifest / SHA-256 / `integrity_check`，并自动快照当前数据库。
 - 关闭 AI 不会删除历史材料、写作批改、错误记录、统计或 FSRS 状态。
 
+### 交互与特效配置
+
+`configs/settings.toml` 可调整 Textual 与 Power Mode：
+
+```toml
+[ui]
+textual = true
+
+[effects]
+enabled = true
+intensity = "normal"   # off / minimal / normal / power
+typing_particles = true
+shake_on_error = true
+pulse_on_correct = true
+combo = true
+startup_animation = true
+reduced_motion = false
+max_particles = 240
+```
+
+`lexi --no-tui` 可临时回退旧行式界面；`reduced_motion = true` 会关闭抖动与强动画。
+特效仅影响显示，不改变 FSRS 评分或学习记录。
+
 ## 8. 测试
 
 ```bash
@@ -252,4 +311,9 @@ pytest
 
 ## 10. 卸载/清理
 
-删除 `.venv/` 即可移除程序环境；删除 `data/` 会删除全部真实学习记录，请先 `lexi backup`。
+```bash
+conda deactivate
+conda env remove -n lexilab
+```
+
+删除 `data/` 会删除全部真实学习记录，请先 `lexi backup`。如果曾使用临时 venv，也可删除 `.venv/`。
