@@ -123,10 +123,15 @@ class Pyttsx3TTS:
 
     def available(self) -> tuple[bool, str]:
         try:
-            import pyttsx3  # noqa: F401
+            import pyttsx3
         except ImportError:
             return False, "未安装 pyttsx3（可选依赖）"
-        return True, "ok（仍需系统语音后端，例如 espeak）"
+        try:
+            engine = pyttsx3.init()
+            engine.getProperty("voices")
+            return True, "ok"
+        except Exception as exc:
+            return False, f"pyttsx3 无法初始化语音后端: {exc}"
 
     def synthesize(self, text: str, destination: Path, *, voice: str, rate: float) -> None:
         try:

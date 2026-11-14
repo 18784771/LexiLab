@@ -56,7 +56,8 @@ def lookup_screen(console: Console, result: LookupResult, entry: WordEntry | Non
             )
         )
     if result.personal:
-        blocks.append(Text(f"个人生词: {result.personal.get('note') or '已加入学习库'}", style="green"))
+        note = result.personal.get("note") or "已加入学习库"
+        blocks.append(Text(f"个人生词: {note}", style="green"))
     blocks.append(Text(f"来源: {result.found_in}", style="dim"))
     console.print(Panel(Group(*blocks), title="LOOKUP", border_style="cyan", expand=False))
 
@@ -84,6 +85,8 @@ def stats_screen(console: Console, summary: dict) -> None:
         sample = data.get("sample", 0)
         if not sample:
             lines.append(Text(f"{label}: 未评估", style="dim"))
+        elif sample < 5:
+            lines.append(Text(f"{label}: 数据不足 (n={sample})", style="dim"))
         else:
             lines.append(Text(f"{label}: {_bar(data.get('accuracy'))}  (n={sample})"))
     lines.append(Text(""))

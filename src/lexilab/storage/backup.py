@@ -152,3 +152,6 @@ def _restore_one(source: Path, target: Path) -> None:
         temp.unlink(missing_ok=True)
         raise sqlite3.DatabaseError(message)
     temp.replace(target)
+    # Stale WAL/SHM files belong to the old database and must not be reused.
+    for suffix in ("-wal", "-shm"):
+        target.with_name(target.name + suffix).unlink(missing_ok=True)
