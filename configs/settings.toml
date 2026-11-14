@@ -1,0 +1,48 @@
+# LexiLab configuration. Relative data_dir is resolved against the project root
+# (the parent directory of this configs/ folder).
+
+[general]
+data_dir = "data"
+timezone = "local"
+
+[learning]
+new_words_per_day = 10
+daily_minutes = 30
+desired_retention = 0.90
+max_reviews_per_session = 80
+pause_new_when_due_over = 60
+recall_delay_days = 2
+interleave_gap = 3
+review_seconds = 25
+new_word_seconds = 70
+reading_target_min = 5
+reading_target_max = 10
+screen_verify_days = [1, 3, 7, 14, 30, 90]
+
+[ai]
+# AI 是可选的增强功能；默认关闭。启用前不会发起任何模型请求。
+enabled = false
+provider = "deepseek"
+base_url = "https://api.deepseek.com"
+# Read the current model name from the official docs and put it here.
+# The code never hardcodes a model name.
+model = ""
+api_key_env = "DEEPSEEK_API_KEY"
+timeout = 60
+retry_count = 2
+max_requests_per_day = 30
+reading_words_min = 150
+reading_words_max = 250
+
+[audio]
+enabled = true
+# auto | flite | espeak | pyttsx3 | none
+provider = "auto"
+voice = "slt"
+rate = 0.95
+player = "auto"
+
+[ui]
+language = "zh"
+color = true
+show_timer = true

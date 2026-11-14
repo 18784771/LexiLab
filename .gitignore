@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+
+# Real user data must never be committed.
+data/vocabulary.db
+data/learning.db
+data/vocabulary.db-wal
+data/vocabulary.db-shm
+data/learning.db-wal
+data/learning.db-shm
+data/raw/*
+!data/raw/.gitkeep
+data/audio/*
+!data/audio/.gitkeep
+data/backups/*
+!data/backups/.gitkeep
+configs/settings.local.toml

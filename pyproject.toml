@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lexilab"
+version = "0.1.0"
+description = "LexiLab: a local, vocabulary-driven English learning CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "LexiLab" }]
+dependencies = [
+  "typer>=0.12,<1.0",
+  "rich>=13.7,<16",
+  "prompt-toolkit>=3.0,<4",
+  "pydantic>=2.6,<3",
+  "fsrs>=6.0,<7",
+  "tomli-w>=1.0,<2",
+]
+
+[project.scripts]
+lexi = "lexilab.cli.app:main_entry"
+
+[project.optional-dependencies]
+ai = ["openai>=1.30,<4"]
+audio = ["pyttsx3>=2.90"]
+all = ["openai>=1.30,<4", "pyttsx3>=2.90"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+lexilab = ["ai/prompts/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

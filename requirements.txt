@@ -1,0 +1,6 @@
+typer==0.29.1
+rich==15.0.0
+prompt-toolkit==3.0.53
+pydantic==2.14.3
+fsrs==6.3.3
+tomli-w==1.2.0

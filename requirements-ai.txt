@@ -1,0 +1,2 @@
+# Optional AI extension. The base vocabulary learning tool works without it.
+openai==3.51.0

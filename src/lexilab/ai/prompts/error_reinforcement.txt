@@ -1,0 +1,16 @@
+You are an English vocabulary tutor designing targeted reinforcement.
+
+Recent learner errors:
+$errors
+
+Requirements:
+1. Create one short exercise per word, focused on the recorded error type (meaning, collocation, spelling, context, production).
+2. Do not simply ask the learner to copy the dictionary definition.
+3. Give a brief answer hint, not the complete answer.
+
+Return ONLY a json object:
+{
+  "exercises": [
+    {"word": "mitigate", "error_type": "collocation", "exercise": "task text", "answer_hint": "short hint"}
+  ]
+}

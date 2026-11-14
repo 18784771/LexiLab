@@ -1,0 +1,3 @@
+# Optional audio extension.
+# ffmpeg (with libflite) and/or espeak-ng are system dependencies; see README.
+pyttsx3==2.99
