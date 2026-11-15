@@ -201,6 +201,31 @@ lexi learn --order related    # 优先与已学词有 WordNet 关系的词
 
 排序原因会写入计划摘要和 `session_items.payload_json` 的 `recommendation` 字段；关系详情可通过 `lexi related <word>` 或设置中的“词库管理 → 词汇关联查询”查看。
 
+### 字体与阅读舒适性
+
+LexiLab 不能直接修改终端的真实字体大小（终端字符单元由终端程序控制）。建议把终端字体设为 **18–22 pt**：
+
+- **Windows Terminal**：Settings → Profiles → Defaults → Appearance → Font size。
+- **VS Code 集成终端**：`terminal.integrated.fontSize`（或设置中的 Terminal › Integrated: Font Size）。
+- **MobaXterm**：Settings → Configuration → Terminal → Font。
+- **GNOME Terminal / Konsole**：Profile Preferences → Font。
+
+程序内部提供 `[ui].display_mode`：
+
+```toml
+[ui]
+display_mode = "comfortable"  # normal / comfortable / large
+large_word_display = true     # 5 行块状字模；超宽/长词自动回退普通文本
+high_contrast = true
+compact_mode = false
+```
+
+`large` 使用更宽的字模间距；宽窗口不足时自动回退 `comfortable`，再回退普通粗体，绝不截断单词。中文释义和音标始终使用普通可换行文本。窄/矮窗口会自动隐藏粒子区域、压缩方向键提示和底部快捷键，缩放后立即重排。设置 → 界面与特效可修改这些项。
+
+真实终端渲染截图见 `docs/screenshots/`，显示指南见 `docs/DISPLAY_GUIDE.md`。
+
+![舒适模式大字符单词](docs/screenshots/word_after_comfortable.svg)
+
 ### 全键盘与 Textual 界面
 
 在真实 TTY 中运行时，`lexi` 与学习会话默认使用 Textual 全键盘界面；非 TTY/CI 自动使用行式界面。可用 `lexi --no-tui` 强制旧界面。

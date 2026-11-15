@@ -73,6 +73,10 @@ language = "zh"
 color = true
 show_timer = true
 textual = true
+display_mode = "comfortable"
+large_word_display = true
+high_contrast = true
+compact_mode = false
 
 [effects]
 enabled = true
@@ -168,6 +172,10 @@ class UISettings(_Base):
     color: bool = True
     show_timer: bool = True
     textual: bool = True
+    display_mode: Literal["normal", "comfortable", "large"] = "comfortable"
+    large_word_display: bool = True
+    high_contrast: bool = True
+    compact_mode: bool = False
 
 
 class EffectsSettings(_Base):
@@ -291,5 +299,8 @@ def config_summary(settings: Settings) -> dict[str, object]:
         "tts_provider": settings.audio.provider,
         "tts_voice": settings.audio.voice,
         "effects": f"{settings.effects.intensity}" + (" (on)" if settings.effects.enabled else " (off)"),
+        "display_mode": settings.ui.display_mode,
+        "large_word_display": settings.ui.large_word_display,
+        "high_contrast": settings.ui.high_contrast,
         "textual_ui": settings.ui.textual,
     }

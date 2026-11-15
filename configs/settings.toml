@@ -69,6 +69,11 @@ language = "zh"
 color = true
 show_timer = true
 textual = true
+# normal | comfortable | large
+display_mode = "comfortable"
+large_word_display = true
+high_contrast = true
+compact_mode = false
 
 [effects]
 # off | minimal | normal | power

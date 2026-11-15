@@ -10,6 +10,7 @@
 | 基础离线版本 | **PASS** |
 | Textual 全键盘交互 + Power Mode 特效 | **PASS** |
 | 极简主界面 + 方向键记忆交互 | **PASS** |
+| 大字体与视觉舒适性 | **PASS** |
 | 词汇关系引擎 + 智能新词排序 | **PASS** |
 | Conda 环境定义 | **PASS**（dry-run 验证） |
 | AI 扩展模块（实现 + Mock 验证） | **PASS** |
@@ -40,7 +41,7 @@
 | 10 | 基础记忆与学习功能 | PASS | 真实六级词库、FSRS、复习、新词、拼写、语境填空、个人生词 |
 | 11 | 记录、统计、备份恢复 | PASS | 自动化测试 + 实际 `lexi backup`；事务回滚、SHA-256、`integrity_check` |
 | 12 | 不产生未经授权的 AI 请求 | PASS | `AIService.available()` 先检查 `enabled`；测试确认禁用时 provider 调用次数为 0 |
-| 13 | 基础模块测试 | PASS | 125 项自动化测试全部通过 |
+| 13 | 基础模块测试 | PASS | 134 项自动化测试全部通过 |
 | 14 | Textual 全键盘学习 | PASS | `run_test` 覆盖新词、输入、评分、反馈、菜单、`Ctrl+Q`；文本输入不触发快捷键 |
 | 15 | Power Mode 特效 | PASS | 粒子有界、快速输入增强、答错局部抖动、答对脉冲、Combo 仅未提示正确增加 |
 | 16 | 特效不阻塞、可关闭 | PASS | `Ctrl+T` 即时开关；timer/worker 异步执行；关闭后学习落库不变 |
@@ -60,6 +61,12 @@
 | 30 | 退出恢复 | PASS | 已有 Ctrl+Q 保留 pending 项测试；每日计数来自真实 cards/review_logs，不重复统计 |
 | 31 | 无 AI 可完整学习 | PASS | 基础测试全部使用 AI 关闭上下文；AI 仅设置入口 |
 | 32 | 从其他目录调用统一数据库 | PASS | `cd /tmp && LEXILAB_CONFIG=/mnt/e/LexiLab/configs/settings.toml lexi stats --json` 返回同一 `total_words=3991`、`learned_total=4`；配置路径解析统一 data 目录 |
+| 33 | 大字符单词 | PASS | `comfortable/large` 使用 5 行块状字模；`normal` 可关闭；区块字符只在单词区域 |
+| 34 | 长词与窄屏回退 | PASS | `internationalization` 在 30 列回退普通文本；44×16 小窗口仍可完成评分 |
+| 35 | 中文/音标可读 | PASS | 释义和音标使用普通可换行文本，不经过块状字模；高对比度样式 |
+| 36 | 自适应布局 | PASS | 窄窗口隐藏粒子区域、切换单行方向键提示；宽窗口展示大字符与间距；运行时缩放即时重排且保留当前卡片 |
+| 37 | 字体说明 | PASS | `docs/DISPLAY_GUIDE.md` + README 提供 Windows Terminal、VS Code、MobaXterm、Linux 终端设置 |
+| 38 | 真实渲染截图 | PASS | `docs/screenshots/` 包含菜单、普通/舒适/大字符/小窗口 SVG |
 
 ### 真实词库与词典
 
@@ -169,7 +176,7 @@ AI 状态区分：`disabled / unconfigured / unavailable / ready / error`。`rea
 pytest -q
 ```
 
-结果：**125 passed**。覆盖：
+结果：**134 passed**。覆盖：
 
 - 真实六级词库导入、幂等、词义合并、异常行。
 - ECDICT CSV 导入、换行解码、lemma 回退、词形变化。
@@ -196,6 +203,9 @@ pytest -q
 - 方向键状态机：Right/Easy、Left/Again、Up+Left/Again、Up+Right/Hard、重复按键去重、文本输入不触发评分。
 - 每日计划：new_first 自动衔接、new/old/interleaved 配置、到期优先测试、无强制 VERIFY。
 - 设置计划：每日新词/时间/顺序/自适应/延迟回忆/错词强化写回配置。
+- 显示：块状字模宽度、长词回退、模式开关、44×16 小窗口可用、Textual 大字符渲染与文本输入不冲突。
+- 显示配置：`display_mode`、`large_word_display`、`high_contrast`、`compact_mode` 默认值与渲染行为。
+- 真实渲染截图：`docs/screenshots/*.svg`，由 Textual `export_screenshot()` 生成。
 - 关系交互：Textual 关系浏览器数字切换、方向键与 Enter 选择；CLI 查询/统计/构建帮助。
 
 ## 7. 交付物
@@ -206,6 +216,8 @@ pytest -q
 - FSRS 记忆系统、学习流程、Textual 全键盘 TUI、Power Mode 特效、本地训练、AI 训练、语音、统计、备份恢复。
 - `README.md`、`docs/ARCHITECTURE.md`、`docs/LEARNING_DESIGN.md`、`docs/INTERACTION_DESIGN.md`、`docs/DATA_SCHEMA.md`、`docs/PROJECT_CHECK.md`、`docs/VOCABULARY_RELATION_DESIGN.md`、`docs/LEARNING_ORDER_DESIGN.md`、`docs/VOCABULARY_RELATION_REPORT.md`、本报告。
 - `scripts/relation_acceptance.py` 与 `reports/relation_acceptance.json`（真实排序对照）。
+- `scripts/render_ui_screenshots.py` 与 `docs/screenshots/*.svg`（真实 Textual 渲染截图）。
+- `docs/DISPLAY_GUIDE.md`（终端字体与显示模式指南）。
 - 自动化测试与真实数据验收记录。
 
 ## 8. 已知限制
@@ -215,6 +227,8 @@ pytest -q
 - 方向键默认不展示 Good 按钮；FSRS 的 Good 仍保留给文本训练/高级评分，不删除。
 - 快速筛选业务表和历史数据保留，但不再有用户入口。
 - 自动化交互通过 `App.run_test` 验证；真实 Windows Terminal 的字体/输入法仍建议人工冒烟。
+- 终端真实字体大小由终端程序控制，LexiLab 只能通过内部布局/块状字模和终端字体设置说明改善可读性。
+- 块状字模只支持有限英文/数字字符；长词、窄屏和特殊字符使用普通文本回退。
 - MockProvider 只用于行为验证，不代表真实模型教学质量；真实 DeepSeek 调用因无密钥标记 BLOCKED。
 - 合成语音不等同真实交流环境；本环境无法确认实际可听输出。
 - Textual 交互通过 `App.run_test` 自动化验证；真实 Windows Terminal / PowerShell 的

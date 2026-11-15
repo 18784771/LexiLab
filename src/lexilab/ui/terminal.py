@@ -12,6 +12,7 @@ from lexilab.config.settings import Settings
 from lexilab.models.word import WordEntry
 from lexilab.ui.base import FeedbackView, ProductionPrompt, RatingResult
 from lexilab.ui.io import TerminalIO
+from lexilab.ui.typography import block_word
 
 RATING_HINT = "[1] 忘记  [2] 困难  [3] 正常  [4] 简单"
 VERIFY_HINT = "[1] 没想起来  [2] 困难  [3] 想起来了  [4] 很轻松"
@@ -73,7 +74,19 @@ class TerminalUI:
             self.console.rule(Text(text, style="bold"))
 
     def _show_word(self, word: str) -> None:
-        self.console.print(Align.center(Text(word, style="bold cyan")))
+        big = None
+        if self.settings.ui.display_mode != "normal" and self.settings.ui.large_word_display:
+            big = block_word(
+                word,
+                mode=self.settings.ui.display_mode,
+                width=self.console.width,
+            )
+        if big:
+            style = "bold bright_cyan" if self.settings.ui.high_contrast else "bold cyan"
+            self.console.print(Align.center(Text(big, style=style)))
+        else:
+            style = "bold bright_white" if self.settings.ui.high_contrast else "bold cyan"
+            self.console.print(Align.center(Text(word, style=style)))
 
     def _hint(self, text: str) -> None:
         self.console.print(Text(text, style="dim"))
@@ -201,10 +214,24 @@ class TerminalUI:
 
     def _render_word_info(self, entry: WordEntry) -> None:
         blocks: list = []
-        line = Text(entry.headword, style="bold cyan")
-        if entry.phonetic:
-            line.append(f"  /{entry.phonetic.strip('/')}/", style="dim")
-        blocks.append(Align.center(line))
+        rendered = block_word(
+            entry.headword,
+            mode=self.settings.ui.display_mode,
+            width=self.console.width,
+        ) if self.settings.ui.large_word_display else None
+        if rendered:
+            style = "bold bright_cyan" if self.settings.ui.high_contrast else "bold cyan"
+            blocks.append(Align.center(Text(rendered, style=style)))
+            if entry.phonetic:
+                phonetic_style = "bold white" if self.settings.ui.high_contrast else "dim"
+                blocks.append(
+                    Align.center(Text(f"/{entry.phonetic.strip('/')}/", style=phonetic_style))
+                )
+        else:
+            line = Text(entry.headword, style="bold cyan")
+            if entry.phonetic:
+                line.append(f"  /{entry.phonetic.strip('/')}/", style="dim")
+            blocks.append(Align.center(line))
         blocks.append(Align.center(Text(entry.meaning_with_pos())))
         if entry.phrases:
             phrase = entry.phrases[0]

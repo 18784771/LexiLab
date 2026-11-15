@@ -1705,6 +1705,15 @@ def interface_action(ctx: AppContext) -> int:
     cfg = ctx.settings
     if not ctx.io.interactive:
         return 0
+    mode = ctx.io.read_line(
+        f"显示模式 1=普通 2=舒适 3=大字符（当前 {cfg.ui.display_mode}）: "
+    )
+    mode_map = {"1": "normal", "2": "comfortable", "3": "large"}
+    if mode and mode.strip() in mode_map:
+        cfg.ui.display_mode = mode_map[mode.strip()]
+    cfg.ui.large_word_display = _ask_bool(ctx, "启用大字符单词渲染？", cfg.ui.large_word_display)
+    cfg.ui.high_contrast = _ask_bool(ctx, "启用高对比度文字？", cfg.ui.high_contrast)
+    cfg.ui.compact_mode = _ask_bool(ctx, "紧凑布局（小窗口优先保功能）？", cfg.ui.compact_mode)
     cfg.effects.enabled = _ask_bool(ctx, "启用界面特效？", cfg.effects.enabled)
     cfg.effects.reduced_motion = _ask_bool(ctx, "减少动态效果？", cfg.effects.reduced_motion)
     cfg.ui.textual = _ask_bool(ctx, "使用 Textual 全键盘界面？", cfg.ui.textual)

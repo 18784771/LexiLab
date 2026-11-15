@@ -7,6 +7,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.screen import Screen
 from textual.widgets import Input, Static
 from textual.widgets.option_list import Option
 from textual.widgets import OptionList
@@ -20,6 +21,7 @@ from lexilab.ui.effects.presets import EffectsRuntime, preset_for
 from lexilab.ui.effects.shake import shake_offsets
 from lexilab.ui.effects.transitions import TTEAdapter
 from lexilab.ui.textual_widgets import ComboBadge, ParticleCanvas, PowerInput
+from lexilab.ui.typography import answer_style, muted_style, word_text
 
 CSS = """
 Screen {
@@ -40,17 +42,21 @@ Screen {
 }
 #word {
     height: auto;
-    min-height: 4;
+    min-height: 5;
+    padding: 1 0;
     content-align: center middle;
     text-style: bold;
+    width: 1fr;
 }
 #meta {
     height: auto;
     content-align: center middle;
-    color: $text-muted;
+    color: $text;
+    padding: 1 0;
 }
 #prompt {
     height: auto;
+    padding: 1 0;
     content-align: center middle;
 }
 #answer {
@@ -68,6 +74,8 @@ Screen {
 #feedback {
     height: auto;
     margin: 1 3;
+    width: 1fr;
+    color: $text;
 }
 #notice {
     height: 1;
@@ -77,9 +85,9 @@ Screen {
 #footer {
     height: 1;
     dock: bottom;
-    padding: 0 1;
+    padding: 0 2;
     background: $panel;
-    color: $text-muted;
+    color: $text;
 }
 #stats {
     height: auto;
@@ -91,10 +99,28 @@ Screen {
 }
 #menu-hint {
     height: 1;
-    padding: 0 2;
-    color: $text-muted;
+    padding: 1 2;
+    color: $text;
+}
+#menu {
+    padding: 1 2;
 }
 """
+
+
+class LexiLabScreen(Screen):
+    """Default screen that notifies the app after a real terminal resize.
+
+    Textual stops the Resize message on the Screen, so an App-level
+    ``on_resize`` handler is not called when the terminal is resized.
+    """
+
+    def _screen_resized(self, size) -> None:
+        super()._screen_resized(size)
+        app = self.app
+        handler = getattr(app, "_handle_resize", None)
+        if handler is not None:
+            handler()
 
 
 class TextualSessionUI(SessionUI):
@@ -186,6 +212,9 @@ class LexiLabSessionApp(App):
         Binding("f2", "audio", "发音", priority=True),
     ]
 
+    def get_default_screen(self) -> Screen:
+        return LexiLabScreen(id="_default")
+
     def __init__(self, context: AppContext, session_id: str, runtime: EffectsRuntime | None = None) -> None:
         super().__init__()
         self.context = context
@@ -234,6 +263,7 @@ class LexiLabSessionApp(App):
         self.footer = self.query_one("#footer", Static)
         self.hud = self.query_one("#hud", Static)
         self.logo = self.query_one("#logo", Static)
+        self._apply_display_profile()
         self.set_focus(None)
         if self.runtime.decorative_animations:
             self._tte_animator = TTEAdapter(
@@ -253,6 +283,107 @@ class LexiLabSessionApp(App):
             self._tte_animator.stop(final=True)
             self._tte_animator = None
         self.logo.update(Text("LexiLab", style="bold cyan"))
+
+    def _apply_display_profile(self) -> None:
+        ui = self.context.settings.ui
+        mode = ui.display_mode
+        self._display_mode = mode
+        self._high_contrast = ui.high_contrast
+        self._compact_layout = (
+            ui.compact_mode
+            or (self.size.width or 80) < 64
+            or (self.size.height or 24) < 20
+        )
+        self._layout_signature = (
+            self.size.width,
+            self.size.height,
+            mode,
+            ui.compact_mode,
+        )
+        if hasattr(self, "word"):
+            extra = 2 if mode == "large" and not self._compact_layout else 1
+            self.word.styles.min_height = 3 if self._compact_layout else 5 + extra
+            self.word.styles.padding = (0, 0) if self._compact_layout else (extra, 0)
+            self.word.styles.opacity = 1
+        if hasattr(self, "meta"):
+            self.meta.styles.padding = (0, 0) if self._compact_layout else (1, 0)
+        if hasattr(self, "prompt"):
+            self.prompt.styles.padding = (0, 0) if self._compact_layout else (1, 0)
+        if hasattr(self, "_canvas"):
+            self._canvas.styles.display = "none" if self._compact_layout else "block"
+        if hasattr(self, "footer"):
+            self.footer.styles.color = "white" if ui.high_contrast else "grey62"
+            self.footer.styles.padding = (0, 0) if self._compact_layout else (0, 2)
+
+    def _direction_prompt(self) -> str:
+        if getattr(self, "_compact_layout", False):
+            return "← 不记得   ↑ 不确定   → 容易"
+        return "↑\n不太确定\n\n←                  →\n不记得              容易"
+
+    def _direction_footer(self) -> str:
+        if getattr(self, "_compact_layout", False):
+            return "[←]不记得 [↑]核对 [→]容易 [P]发音 [Esc]退出"
+        return "[←] 不记得   [↑] 核对   [→] 容易   [P] 发音   [E] 详情   [Esc] 返回"
+
+    def _word_display(self, entry: WordEntry) -> Text:
+        ui = self.context.settings.ui
+        return word_text(
+            entry.headword,
+            mode=ui.display_mode,
+            width=max(20, self.size.width or 80),
+            large_word_display=ui.large_word_display,
+            high_contrast=ui.high_contrast,
+        )
+
+    def _set_word(self, entry: WordEntry) -> None:
+        rendered = self._word_display(entry)
+        self._current_word_plain = rendered.plain
+        self.word.update(rendered)
+
+    def _refresh_word_display(self) -> None:
+        if self._entry is not None and hasattr(self, "word"):
+            self._set_word(self._entry)
+
+    def _handle_resize(self) -> None:
+        if not hasattr(self, "_display_mode"):
+            return
+        signature = (
+            self.size.width,
+            self.size.height,
+            self.context.settings.ui.display_mode,
+            self.context.settings.ui.compact_mode,
+        )
+        if signature == getattr(self, "_layout_signature", None):
+            return
+        self._apply_display_profile()
+        self._refresh_word_display()
+        if getattr(self, "_mode", "").startswith("recognition") and getattr(
+            self, "_stage", ""
+        ) == "question":
+            self.prompt.update(
+                Text(
+                    self._direction_prompt(),
+                    justify="center",
+                    style=answer_style(getattr(self, "_high_contrast", True)),
+                )
+            )
+            self.footer.update(Text(self._direction_footer(), style=self._help_style()))
+
+    def _muted(self, text: str) -> Text:
+        return Text(text, style=muted_style(getattr(self, "_high_contrast", True)))
+
+    def _phonetic(self, entry: WordEntry) -> str:
+        phonetic = entry.phonetic.strip("/ ")
+        return f"/{phonetic}/" if phonetic else ""
+
+    def _phonetic_text(self, entry: WordEntry) -> Text:
+        return Text(
+            self._phonetic(entry),
+            style="bold white" if getattr(self, "_high_contrast", True) else "dim",
+        )
+
+    def _help_style(self) -> str:
+        return "bold white" if getattr(self, "_high_contrast", True) else "dim"
 
     @work(thread=True, exclusive=True)
     def _run_learning_session(self) -> None:
@@ -296,8 +427,8 @@ class LexiLabSessionApp(App):
         self._callback = callback
         self._clear_screen()
         self._set_header("NEW")
-        self.word.update(Text(entry.headword, style="bold cyan"))
-        self.meta.update(Text(entry.phonetic, style="dim"))
+        self._set_word(entry)
+        self.meta.update(self._phonetic_text(entry))
         self.prompt.update(Text("你认识这个单词吗？\n[1] 认识    [2] 不确定    [3] 不认识", justify="center"))
         self.footer.update(
             Text("[1-3] 回答   [F2] 发音   [Ctrl+P] 命令面板   [Ctrl+Q] 保存退出", style="dim")
@@ -310,8 +441,8 @@ class LexiLabSessionApp(App):
         self._callback = callback
         self._clear_screen()
         self._set_header("NEW WORD")
-        self.word.update(Text(entry.headword, style="bold cyan"))
-        self.meta.update(Text(f"/{entry.phonetic.strip('/')}/  {entry.meaning_with_pos()}", style="dim"))
+        self._set_word(entry)
+        self.meta.update(self._muted(f"{self._phonetic(entry)}  {entry.meaning_with_pos()}"))
         lines = [Text(entry.meaning_with_pos(), style="bold")]
         if entry.phrases:
             lines.append(Text(f"{entry.phrases[0].phrase}  {entry.phrases[0].translation}", style="italic"))
@@ -340,20 +471,16 @@ class LexiLabSessionApp(App):
             "verify": "VERIFY",
         }.get(mode, "REVIEW")
         self._set_header(label)
-        self.word.update(Text(entry.headword, style="bold cyan"))
-        self.meta.update(Text(entry.phonetic, style="dim"))
+        self._set_word(entry)
+        self.meta.update(self._phonetic_text(entry))
         self.prompt.update(
             Text(
-                "↑\n不太确定\n\n←                  →\n不记得              容易",
+                self._direction_prompt(),
                 justify="center",
+                style=answer_style(getattr(self, "_high_contrast", True)),
             )
         )
-        self.footer.update(
-            Text(
-                "[←] 不记得   [↑] 核对   [→] 容易   [P] 发音   [E] 详情   [Esc] 返回",
-                style="dim",
-            )
-        )
+        self.footer.update(Text(self._direction_footer(), style=self._help_style()))
         self.effects.emit(EffectEvent.CARD_CHANGED, word=entry.headword)
 
     def _show_answer_for_direction(self, *, check: bool) -> None:
@@ -367,8 +494,8 @@ class LexiLabSessionApp(App):
                 justify="center",
             )
         )
-        self.meta.update(Text(f"/{entry.phonetic.strip('/')}/  {entry.meaning_with_pos()}", style="dim"))
-        lines = [Text(entry.meaning_with_pos(), style="bold")]
+        self.meta.update(self._phonetic_text(entry))
+        lines = [Text(entry.meaning_with_pos(), style=answer_style(getattr(self, "_high_contrast", True)))]
         if entry.phrases:
             lines.append(Text(f"{entry.phrases[0].phrase}  {entry.phrases[0].translation}", style="italic"))
         if entry.examples:
@@ -430,7 +557,11 @@ class LexiLabSessionApp(App):
         self._clear_screen()
         self._set_header("RECALL")
         self.prompt.update(
-            Text(prompt.meaning.replace("\n", "；") + (f"（{prompt.pos}）" if prompt.pos else ""), justify="center")
+            Text(
+                prompt.meaning.replace("\n", "；") + (f"（{prompt.pos}）" if prompt.pos else ""),
+                justify="center",
+                style=answer_style(getattr(self, "_high_contrast", True)),
+            )
         )
         lines = []
         if prompt.cloze:
@@ -469,7 +600,7 @@ class LexiLabSessionApp(App):
         if feedback.message and feedback.message != feedback.diagnosis:
             lines.append(Text(feedback.message, style="dim"))
         if feedback.reference_sentence:
-            lines.append(Text(feedback.reference_sentence, style="italic"))
+            lines.append(Text(feedback.reference_sentence, style="italic" if not getattr(self, "_high_contrast", True) else "italic bright_white"))
         self.feedback.update(Text("\n").join(lines))
         suggested = feedback.suggested_rating or 3
         self.footer.update(
@@ -495,7 +626,7 @@ class LexiLabSessionApp(App):
         self._callback = callback
         self._clear_screen()
         self._set_header("REINFORCE")
-        self.word.update(Text(entry.headword, style="bold cyan"))
+        self._set_word(entry)
         self.prompt.update(Text("短时强化：请再次回忆\n[Space/Enter] 显示答案", justify="center"))
         self.footer.update(Text("[Space/Enter] 显示答案   [Ctrl+Q] 退出", style="dim"))
 
@@ -636,7 +767,12 @@ class LexiLabSessionApp(App):
             elif key in {"enter", "space"} and self._stage == "front":
                 self._stage = "back"
                 assert entry is not None
-                self.meta.update(Text(f"/{entry.phonetic.strip('/')}/  {entry.meaning_with_pos()}", style="dim"))
+                self.meta.update(
+                    Text(
+                        f"{self._phonetic(entry)}  {entry.meaning_with_pos()}",
+                        style=answer_style(getattr(self, "_high_contrast", True)),
+                    )
+                )
                 self.feedback.update(Text(entry.examples[0].sentence_en if entry.examples else entry.meaning_with_pos(), style="italic"))
                 self.footer.update(Text("[Y] 想起来了   [N] 仍没想起来   [Ctrl+Q] 退出", style="dim"))
             elif key in {"y", "n"} and self._stage == "back":

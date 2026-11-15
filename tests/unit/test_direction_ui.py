@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from lexilab.cli.actions import learning_plan_action
+from lexilab.cli.actions import interface_action, learning_plan_action
 from lexilab.models.session import ItemType, PlanItem, SessionPlan
 from lexilab.ui.effects.presets import preset_for
 from lexilab.ui.textual_app import LexiLabSessionApp
@@ -249,3 +249,87 @@ def test_learning_plan_can_be_changed_and_saved(tmp_path, monkeypatch):
 def test_planner_does_not_force_screening_verification(context):
     plan = context.planner.build("study", minutes=30, new_count=2)
     assert all(item.item_type != ItemType.VERIFY for item in plan.items)
+
+
+def test_interface_action_saves_display_and_contrast_settings(tmp_path, monkeypatch):
+    ctx = make_context(tmp_path)
+    config = tmp_path / "settings.toml"
+    ctx.settings.config_path = config
+    answers = iter(["3", "n", "n", "y", "n", "y", "n"])
+
+    monkeypatch.setattr(type(ctx.io), "interactive", property(lambda self: True))
+    monkeypatch.setattr(ctx.io, "read_line", lambda prompt: next(answers))
+    assert interface_action(ctx) == 0
+    assert ctx.settings.ui.display_mode == "large"
+    assert ctx.settings.ui.large_word_display is False
+    assert ctx.settings.ui.high_contrast is False
+    assert ctx.settings.ui.compact_mode is True
+    assert ctx.settings.effects.enabled is False
+    assert ctx.settings.effects.reduced_motion is True
+    assert ctx.settings.ui.textual is False
+    assert config.is_file()
+
+
+def test_large_display_renders_word_without_changing_flow(tmp_path):
+    ctx = make_context(tmp_path)
+    ctx.settings.ui.display_mode = "large"
+    ctx.settings.ui.large_word_display = True
+    app = _review_app(ctx)
+
+    async def run():
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.2)
+            rendered = app._current_word_plain
+            assert "█" in rendered
+            assert len(rendered.splitlines()) == 5
+            assert app.meta.content.plain == "/ˈtest/"
+            await pilot.press("right")
+            await pilot.pause(0.3)
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+
+    asyncio.run(run())
+
+
+def test_resizing_to_small_switches_to_compact_prompt(tmp_path):
+    ctx = make_context(tmp_path)
+    app = _review_app(ctx)
+
+    async def run():
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.2)
+            assert "\n" in app.prompt.content.plain
+            await pilot.resize_terminal(44, 16)
+            await pilot.pause(0.2)
+            assert "\n" not in app.prompt.content.plain
+            assert app._current_word_plain == "mitigate"
+            assert "[Esc]" in app.footer.content.plain
+            await pilot.press("right")
+            await pilot.pause(0.3)
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+
+    asyncio.run(run())
+
+
+def test_small_terminal_falls_back_to_plain_word_and_remains_usable(tmp_path):
+    ctx = make_context(tmp_path)
+    ctx.settings.ui.display_mode = "large"
+    app = _review_app(ctx)
+
+    async def run():
+        async with app.run_test(size=(44, 16)) as pilot:
+            await pilot.pause(0.2)
+            assert app._current_word_plain == "mitigate"
+            prompt = app.prompt.content.plain
+            assert "\n" not in prompt
+            assert "不记得" in prompt and "容易" in prompt
+            assert app.prompt.region.bottom <= app.size.height
+            assert "[Esc]" in app.footer.content.plain
+            assert "详情" not in app.footer.content.plain
+            await pilot.press("right")
+            await pilot.pause(0.3)
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+
+    asyncio.run(run())
