@@ -1,0 +1,511 @@
+{
+  "book": "cet6",
+  "candidate_count": 3984,
+  "learned_count": 4,
+  "limit": 50,
+  "strategies": {
+    "A_alphabetical": {
+      "words": [
+        "accountant",
+        "accrue",
+        "accurate",
+        "accuse",
+        "accustom",
+        "achieve",
+        "acquaintance",
+        "activate",
+        "acutely",
+        "addict",
+        "address",
+        "administration",
+        "adopt",
+        "adventure",
+        "adventurer",
+        "adverse",
+        "adversely",
+        "affection",
+        "agenda",
+        "aggravate",
+        "agonize",
+        "aid",
+        "alert",
+        "alien",
+        "allergic",
+        "alternative",
+        "analytical",
+        "ancient",
+        "ankle",
+        "anonymous",
+        "anticipate",
+        "anxiety",
+        "apartment",
+        "apathy",
+        "apologize",
+        "applicable",
+        "applicant",
+        "appoint",
+        "appreciative",
+        "approach",
+        "appropriate",
+        "approve",
+        "approximately",
+        "arm",
+        "arouse",
+        "arrogant",
+        "artificial",
+        "aspect",
+        "assassinate",
+        "assemble"
+      ],
+      "metrics": {
+        "top1000_frequency_words": 3,
+        "median_frequency_rank": 4003,
+        "spelling_pairs_ge_080": 1,
+        "synonym_pairs_in_batch": 0,
+        "related_to_learned": 0,
+        "pos_categories": 12
+      }
+    },
+    "B_random": {
+      "words": [
+        "butt",
+        "dwell",
+        "negligible",
+        "platform",
+        "mischief",
+        "clutch",
+        "assure",
+        "integrity",
+        "alert",
+        "ritual",
+        "financial",
+        "ruling",
+        "fantastic",
+        "undecided",
+        "foresee",
+        "module",
+        "despise",
+        "exertion",
+        "closet",
+        "construct",
+        "extreme",
+        "mend",
+        "transit",
+        "frighten",
+        "cloak",
+        "garage",
+        "settlement",
+        "impatient",
+        "clip",
+        "marvel",
+        "membership",
+        "plump",
+        "consultant",
+        "antique",
+        "continual",
+        "scripture",
+        "educational",
+        "selection",
+        "outset",
+        "considerable",
+        "volume",
+        "management",
+        "thresh",
+        "enviable",
+        "tick",
+        "hypothesis",
+        "racket",
+        "adventure",
+        "principal",
+        "evident"
+      ],
+      "metrics": {
+        "top1000_frequency_words": 2,
+        "median_frequency_rank": 4859,
+        "spelling_pairs_ge_080": 0,
+        "synonym_pairs_in_batch": 0,
+        "related_to_learned": 0,
+        "pos_categories": 15
+      }
+    },
+    "C_frequency": {
+      "words": [
+        "what",
+        "can",
+        "way",
+        "even",
+        "through",
+        "should",
+        "over",
+        "feel",
+        "between",
+        "start",
+        "program",
+        "question",
+        "number",
+        "move",
+        "issue",
+        "head",
+        "house",
+        "line",
+        "end",
+        "set",
+        "community",
+        "white",
+        "team",
+        "body",
+        "follow",
+        "reason",
+        "force",
+        "offer",
+        "second",
+        "process",
+        "market",
+        "expect",
+        "fall",
+        "remain",
+        "raise",
+        "late",
+        "hard",
+        "report",
+        "economic",
+        "rate",
+        "military",
+        "develop",
+        "view",
+        "carry",
+        "arm",
+        "federal",
+        "value",
+        "action",
+        "position",
+        "paper"
+      ],
+      "metrics": {
+        "top1000_frequency_words": 50,
+        "median_frequency_rank": 359,
+        "spelling_pairs_ge_080": 0,
+        "synonym_pairs_in_batch": 14,
+        "related_to_learned": 0,
+        "pos_categories": 11
+      }
+    },
+    "D_smart": {
+      "words": [
+        "what",
+        "can",
+        "way",
+        "through",
+        "should",
+        "over",
+        "feel",
+        "between",
+        "start",
+        "even",
+        "question",
+        "number",
+        "move",
+        "program",
+        "house",
+        "end",
+        "white",
+        "team",
+        "body",
+        "force",
+        "offer",
+        "second",
+        "set",
+        "process",
+        "expect",
+        "remain",
+        "late",
+        "hard",
+        "report",
+        "economic",
+        "rate",
+        "develop",
+        "arm",
+        "matter",
+        "situation",
+        "abandon",
+        "federal",
+        "available",
+        "campaign",
+        "practice",
+        "current",
+        "security",
+        "baby",
+        "evidence",
+        "culture",
+        "issue",
+        "head",
+        "material",
+        "involve",
+        "board"
+      ],
+      "metrics": {
+        "top1000_frequency_words": 49,
+        "median_frequency_rank": 391,
+        "spelling_pairs_ge_080": 0,
+        "synonym_pairs_in_batch": 6,
+        "related_to_learned": 1,
+        "pos_categories": 12
+      },
+      "reasons": {
+        "what": [
+          "ECDICT frq 排名 34",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "can": [
+          "ECDICT frq 排名 37",
+          "Collins 2 星",
+          "Oxford 核心词"
+        ],
+        "way": [
+          "ECDICT frq 排名 84",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "through": [
+          "ECDICT frq 排名 112",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "should": [
+          "ECDICT frq 排名 121",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "over": [
+          "ECDICT frq 排名 124",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "feel": [
+          "ECDICT frq 排名 134",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "between": [
+          "ECDICT frq 排名 140",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "start": [
+          "ECDICT frq 排名 173",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "even": [
+          "ECDICT frq 排名 107",
+          "Collins 1 星",
+          "Oxford 核心词"
+        ],
+        "question": [
+          "ECDICT frq 排名 197",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "number": [
+          "ECDICT frq 排名 204",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "move": [
+          "ECDICT frq 排名 207",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "program": [
+          "ECDICT frq 排名 194",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "house": [
+          "ECDICT frq 排名 257",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "end": [
+          "ECDICT frq 排名 278",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "white": [
+          "ECDICT frq 排名 301",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "team": [
+          "ECDICT frq 排名 307",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "body": [
+          "ECDICT frq 排名 313",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "force": [
+          "ECDICT frq 排名 372",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "offer": [
+          "ECDICT frq 排名 373",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "second": [
+          "ECDICT frq 排名 381",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "set": [
+          "ECDICT frq 排名 294",
+          "Collins 3 星",
+          "Oxford 核心词"
+        ],
+        "process": [
+          "ECDICT frq 排名 391",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "expect": [
+          "ECDICT frq 排名 405",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "remain": [
+          "ECDICT frq 排名 426",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "late": [
+          "ECDICT frq 排名 437",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "hard": [
+          "ECDICT frq 排名 438",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "report": [
+          "ECDICT frq 排名 450",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "economic": [
+          "ECDICT frq 排名 453",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "rate": [
+          "ECDICT frq 排名 457",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "develop": [
+          "ECDICT frq 排名 484",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "arm": [
+          "ECDICT frq 排名 491",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "matter": [
+          "ECDICT frq 排名 528",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "situation": [
+          "ECDICT frq 排名 548",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "abandon": [
+          "ECDICT frq 排名 2182",
+          "Collins 3 星",
+          "Oxford 核心词",
+          "已学习相关词 abandonment（派生）"
+        ],
+        "federal": [
+          "ECDICT frq 排名 493",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "available": [
+          "ECDICT frq 排名 622",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "campaign": [
+          "ECDICT frq 排名 640",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "practice": [
+          "ECDICT frq 排名 564",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "current": [
+          "ECDICT frq 排名 652",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "security": [
+          "ECDICT frq 排名 661",
+          "Collins 5 星",
+          "Oxford 核心词"
+        ],
+        "baby": [
+          "ECDICT frq 排名 588",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "evidence": [
+          "ECDICT frq 排名 606",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "culture": [
+          "ECDICT frq 排名 611",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "issue": [
+          "ECDICT frq 排名 248",
+          "Collins 5 星",
+          "Oxford 核心词",
+          "与已选词汇 number 语义关联，避免同批集中"
+        ],
+        "head": [
+          "ECDICT frq 排名 251",
+          "Collins 5 星",
+          "Oxford 核心词",
+          "与已选词汇 can 语义关联，避免同批集中"
+        ],
+        "material": [
+          "ECDICT frq 排名 641",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "involve": [
+          "ECDICT frq 排名 656",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ],
+        "board": [
+          "ECDICT frq 排名 667",
+          "Collins 4 星",
+          "Oxford 核心词"
+        ]
+      }
+    }
+  }
+}

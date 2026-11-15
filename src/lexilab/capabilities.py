@@ -50,6 +50,7 @@ class CapabilityRegistry:
         return {
             "vocabulary": self.vocabulary(),
             "fsrs": self.fsrs(),
+            "relations": self.relations(),
             "ai": self.ai(),
             "tts": self.tts(),
             "player": self.player(),
@@ -70,6 +71,33 @@ class CapabilityRegistry:
                 {"words": 0},
             )
         return Capability("vocabulary", "词库", CapabilityState.READY, f"{count} 条", {"words": count})
+
+    def relations(self) -> Capability:
+        if not self.settings.relations.enabled:
+            return Capability("relations", "词汇关系", CapabilityState.DISABLED, "用户关闭关系引擎")
+        if importlib.util.find_spec("rapidfuzz") is None:
+            return Capability(
+                "relations",
+                "词汇关系",
+                CapabilityState.UNAVAILABLE,
+                "未安装 rapidfuzz；智能排序会降级为词频策略",
+            )
+        stats = self.vocab.relation_stats()
+        if int(stats.get("relations", 0)) <= 0:
+            return Capability(
+                "relations",
+                "词汇关系",
+                CapabilityState.UNCONFIGURED,
+                "关系库尚未构建；运行 lexi relations build（可选，基础学习不受影响）",
+                stats,
+            )
+        return Capability(
+            "relations",
+            "词汇关系",
+            CapabilityState.READY,
+            f"{stats['relations']} 条关系 / {stats['source_words']} 个源词",
+            stats,
+        )
 
     def fsrs(self) -> Capability:
         try:

@@ -16,6 +16,7 @@ def planner(context) -> Planner:
 
 
 def test_due_reviews_come_first_and_errors_are_prioritized(context):
+    context.settings.learning.plan_order = "old_first"
     for word in ("abandon", "ability", "abstract"):
         make_due_card(context.repo, word)
     context.repo.add_word_error("abstract", "recognition", "forgot", "x")
@@ -23,6 +24,14 @@ def test_due_reviews_come_first_and_errors_are_prioritized(context):
     assert plan.items[0].word_key == "abstract"
     assert plan.items[0].item_type == ItemType.REVIEW_RECOGNITION
     assert plan.due_count == 3
+
+
+def test_default_plan_starts_with_new_word_then_reviews_then_recall(context):
+    make_due_card(context.repo, "abandon", days=-0.1)
+    plan = planner(context).build("study", minutes=30, new_count=1)
+    assert plan.items[0].item_type == ItemType.NEW_INTRO
+    assert any(item.item_type == ItemType.REVIEW_RECOGNITION for item in plan.items)
+    assert plan.items[-1].item_type == ItemType.NEW_RECALL
 
 
 def test_new_words_paused_when_due_load_is_high(context):
@@ -61,6 +70,7 @@ def test_time_budget_limits_reviews(context):
 
 
 def test_daily_new_limit_accounts_for_today(context):
+    context.settings.learning.new_words_per_day = 10
     make_due_card(context.repo, "abandon", days=-0.1)
     plan = planner(context).build("study", minutes=120, new_count=None)
     assert plan.new_count == context.settings.learning.new_words_per_day - 1

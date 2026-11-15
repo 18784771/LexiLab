@@ -8,6 +8,7 @@ from lexilab.config.settings import Settings
 from lexilab.memory.engine import MemoryService
 from lexilab.models.session import ItemType, PlanItem
 from lexilab.models.word import WordEntry
+from lexilab.relations.service import RelationService
 from lexilab.storage.learning_repo import LearningRepository
 from lexilab.training.judge import judge_word_answer
 from lexilab.ui.base import FeedbackView, ProductionPrompt, SessionUI
@@ -39,12 +40,14 @@ class LearningSession:
         memory: MemoryService,
         vocab: VocabularyService,
         ui: SessionUI,
+        relations: RelationService | None = None,
     ) -> None:
         self.settings = settings
         self.repo = repo
         self.memory = memory
         self.vocab = vocab
         self.ui = ui
+        self.relations = relations
         self._reviewed = 0
         self._new = 0
         self._skipped = 0
@@ -89,13 +92,15 @@ class LearningSession:
             minutes=elapsed,
         )
         if not quit_requested:
-            self.ui.show_summary(
+            choice = self.ui.show_summary(
                 {
                     **result.__dict__,
                     "pending": len(queue),
                     "message": "已保存，下次运行 lexi study 可继续" if quit_requested else "本次学习完成",
                 }
             )
+            if choice:
+                result.details["summary_choice"] = choice
         return result
 
     def _load_pending(self, session_id: str) -> list[RunItem]:
@@ -120,7 +125,7 @@ class LearningSession:
         item = run_item.item
         entry = self._entry(item.word_key)
         if item.item_type == ItemType.NEW_INTRO:
-            return self._new_intro(run_item, entry, position)
+            return self._new_intro(run_item, entry, position, queue)
         if item.item_type == ItemType.NEW_RECALL:
             return self._new_recall(run_item, entry, position, queue)
         if item.item_type == ItemType.REVIEW_RECOGNITION:
@@ -136,7 +141,54 @@ class LearningSession:
         return False
 
     # --------------------------------------------------------------- handlers
-    def _new_intro(self, run_item: RunItem, entry: WordEntry, position: str) -> bool:
+    def _new_intro(
+        self, run_item: RunItem, entry: WordEntry, position: str, queue: list[RunItem]
+    ) -> bool:
+        direction = getattr(self.ui, "ask_new_word_direction", None)
+        if callable(direction):
+            result = direction(entry, position)
+            if result.quit:
+                return True
+            rating = int(result.rating or 1)
+            if result.hinted and rating == 4:
+                # Audio/detail disclosure means the answer was not fully
+                # independent; Easy is not justified.
+                rating = 2
+            self.memory.ensure_cards(
+                entry.word_key,
+                recall_suspended=self.settings.learning.recall_delay_days > 0,
+            )
+            self.repo.add_training_log(
+                entry.word_key,
+                "recognition",
+                correct=None if rating == 1 else True,
+                hinted=result.hinted,
+                duration_ms=result.duration_ms,
+                detail={
+                    "step": "direction_intro",
+                    "response": rating,
+                    "revealed": result.revealed,
+                },
+                session_id=run_item.item.payload.get("session_id"),
+            )
+            if rating in {2, 4}:
+                row = self.repo.get_card(entry.word_key, "recognition") or self.memory.ensure_recognition_card(
+                    entry.word_key
+                )
+                outcome = self.memory.review(
+                    row, rating, duration_ms=result.duration_ms
+                )
+                self._reviewed += 1
+                self._new += 1
+                self._drop_followup_recall(queue, entry.word_key)
+                self._mark(run_item, "done", {"rating": outcome.rating, "step": "direction_intro"})
+            else:
+                # The card is created but no successful FSRS review is recorded.
+                # A later NEW_RECALL performs the independent delayed test.
+                self._mark(run_item, "done", {"rating": None, "step": "direction_intro"})
+            return False
+
+        # Scripted/legacy UI fallback.
         action = self.ui.ask_new_word(entry, position)
         if action == 0:
             return True
@@ -225,6 +277,10 @@ class LearningSession:
             entry.headword,
             known_forms=self.vocab.forms_for(entry.word_key),
         )
+        if not judge.correct and self.relations is not None:
+            self.relations.record_confusion_from_answer(
+                entry.word_key, result.answer, skill="recall"
+            )
         suggested = 2 if (judge.correct and result.hinted) else (3 if judge.correct else 1)
         feedback = FeedbackView(
             expected=entry.headword,
@@ -338,6 +394,17 @@ class LearningSession:
     def _mark(self, run_item: RunItem, status: str, payload: dict | None = None) -> None:
         if run_item.item_id is not None:
             self.repo.mark_item(run_item.item_id, status, payload=payload)
+
+    def _drop_followup_recall(self, queue: list[RunItem], word_key: str) -> None:
+        """Merge a successful intro with its delayed recall item.
+
+        A first exposure that already produced an independent Easy/Hard review
+        must not create a second review log for the same learning event.
+        """
+        for queued in list(queue):
+            if queued.item.word_key == word_key and queued.item.item_type == ItemType.NEW_RECALL:
+                queue.remove(queued)
+                self._mark(queued, "done", {"merged_into_intro": True})
 
     def _skip(self, run_item: RunItem, entry: WordEntry, skill: str) -> None:
         self._skipped += 1

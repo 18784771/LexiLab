@@ -50,6 +50,8 @@ class AnalyticsService:
             or 0
         )
         personal_count = int(db.scalar("SELECT COUNT(*) FROM personal_words", (), 0))
+        total_words = self.vocab.count_words() if self.vocab is not None else 0
+        progress = (learned_total / total_words) if total_words else 0.0
         return {
             "due_count": due_count,
             "learned_total": learned_total,
@@ -57,6 +59,8 @@ class AnalyticsService:
             "today_reviews": today_reviews,
             "today_minutes": today_minutes,
             "personal_count": personal_count,
+            "total_words": total_words,
+            "progress": progress,
             "skills": self.skill_accuracy(),
             "delayed_7d": self.delayed_recall(7),
             "delayed_30d": self.delayed_recall(30),

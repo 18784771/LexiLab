@@ -265,6 +265,45 @@ class LearningRepository:
         )
         return [dict(r) for r in rows]
 
+    # ------------------------------------------------------------- confusions
+    def record_confusion(
+        self,
+        source_word: str,
+        target_word: str,
+        *,
+        skill: str = "recall",
+    ) -> int:
+        """Record a real-word substitution such as adapt -> adopt.
+
+        The caller must verify that the target is an actual word. Nonexistent
+        spellings belong in training_logs/word_errors, not in this table.
+        """
+        source = normalize_word(source_word)
+        target = normalize_word(target_word)
+        if not source or not target or source == target:
+            return 0
+        now = utcnow_iso()
+        return self.db.execute(
+            """INSERT INTO confusion_pairs(source_word, target_word, skill, count, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, 1, ?, ?)
+               ON CONFLICT(source_word, target_word) DO UPDATE SET
+                 count=confusion_pairs.count+1, skill=excluded.skill, last_seen_at=excluded.last_seen_at""",
+            (source, target, skill, now, now),
+        )
+
+    def list_confusions(self, limit: int = 50, min_count: int = 1) -> list[dict]:
+        rows = self.db.query_all(
+            """SELECT source_word, target_word, skill, count, first_seen_at, last_seen_at
+               FROM confusion_pairs WHERE count >= ?
+               ORDER BY count DESC, last_seen_at DESC, source_word, target_word
+               LIMIT ?""",
+            (min_count, limit),
+        )
+        return [dict(r) for r in rows]
+
+    def confusion_count(self) -> int:
+        return int(self.db.scalar("SELECT COUNT(*) FROM confusion_pairs", (), 0) or 0)
+
     def resolve_errors(self, word_key: str, skill: str | None = None) -> int:
         with self.db.transaction() as conn:
             if skill:

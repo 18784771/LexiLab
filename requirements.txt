@@ -6,3 +6,5 @@ fsrs==6.3.3
 tomli-w==1.2.0
 textual==8.2.8
 terminaltexteffects==0.15.0
+nltk==3.10.4
+rapidfuzz==3.14.6

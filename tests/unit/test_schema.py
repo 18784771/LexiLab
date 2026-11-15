@@ -18,4 +18,4 @@ def test_learning_schema_upgrade_adds_hinted(tmp_path):
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(material_attempts)")}
         version = conn.execute("SELECT MAX(version) FROM schema_versions").fetchone()[0]
     assert "hinted" in columns
-    assert version == 2
+    assert version == 3

@@ -2,7 +2,7 @@
 
 本地化、以词汇为核心的英语学习命令行工具。
 
-LexiLab 首先是一个完整的离线背单词工具：导入真实六级词库与 ECDICT，使用 Py-FSRS 调度复习，提供英译中、中译英、拼写、语境填空、快速筛选、统计与备份恢复。AI 阅读/写作/听力是可选的增强层，**不配置任何 AI 也能完整使用基础功能**。
+LexiLab 首先是一个完整的离线背单词工具：导入真实六级词库与 ECDICT，使用 Py-FSRS 调度复习，提供英译中、中译英、拼写、语境填空、统计与备份恢复。AI 阅读/写作/听力是可选的增强层，**不配置任何 AI 也能完整使用基础功能**。
 
 - 基础离线学习：始终可用。
 - 语音增强：检测到本地 TTS 与播放器时启用。
@@ -18,7 +18,7 @@ conda activate lexilab
 pip install -e .
 ```
 
-`environment.yml` 已包含核心运行依赖（Typer、Rich、Prompt Toolkit、Pydantic、Py-FSRS、Textual、TerminalTextEffects、tomli-w）。如果修改了 `requirements.txt`，也可以重新执行：
+`environment.yml` 已包含核心运行依赖（Typer、Rich、Prompt Toolkit、Pydantic、Py-FSRS、Textual、TerminalTextEffects、NLTK、RapidFuzz、tomli-w）。如果修改了 `requirements.txt`，也可以重新执行：
 
 ```bash
 pip install -r requirements.txt
@@ -78,6 +78,16 @@ pip install -r requirements-ai.txt
 pip install -r requirements-audio.txt
 ```
 
+词汇关系语义分析使用 NLTK WordNet；WordNet 数据是独立的显式初始化步骤，**不会在每次启动时重新下载**：
+
+```bash
+python -m nltk.downloader wordnet
+# 或在 LexiLab 内显式初始化：
+lexi relations build --download
+```
+
+如果 WordNet 数据缺失，程序仍可启动；新词排序会自动降级为 ECDICT 词频/词书顺序，形近词关系仍可由 RapidFuzz 构建。
+
 没有安装这些扩展时，程序仍可启动；对应功能显示为不可用或被自动隐藏。
 
 语音合成优先级：`ffmpeg` 内置 `libflite` → `espeak-ng/espeak` → `pyttsx3`。播放器自动探测 `ffplay` / `aplay` / `paplay` / `afplay`。可用 `lexi config audio` 查看检测结果。
@@ -86,6 +96,8 @@ pip install -r requirements-audio.txt
 
 ```bash
 lexi init
+# 导入完成后同时构建词汇关系（WordNet 数据需事先显式下载）：
+lexi init --with-relations
 ```
 
 默认动作：
@@ -135,23 +147,23 @@ lexi doctor
 lexi
 ```
 
-主界面只显示当前可执行的任务。默认数字快捷键保持稳定：
+主界面只有三个入口，默认焦点永远在“开始今日学习”：
 
-- `[Enter]` 开始今日学习
-- `[1]` 单词复习 `[2]` 新词学习
-- `[3]` 听音辨义/听写（仅音频可用时）
-- `[4]` AI 阅读 `[5]` AI 写作（仅 AI 已启用且配置完整时）
-- `[6]` 统计 `[7]` 词库管理 `[8]` 快速筛选
-- `[9]` 本地材料（存在缓存时）
-- `[c]` 配置 `[q]` 退出
+- `Enter` 开始今日学习（自动组织新词、到期复习、延迟回忆与错词强化）
+- `↑/↓` 选择
+- 设置中可进入学习计划、统计、词库、专项训练、AI/语音、界面特效和备份恢复
+- `Esc`/`Ctrl+Q` 退出
+
+打开后按一次 Enter 即可进入完整学习流程，不需要手动选择复习或新词。
 
 常用命令：
 
 ```bash
-lexi study --minutes 30      # 到期复习优先，再学新词
-lexi review                  # 只复习
-lexi learn --count 10        # 只学新词
-lexi screen                  # 快速筛选已认识的词
+lexi study --minutes 30      # 自动完成今日新词 + 到期复习 + 延迟回忆
+lexi review                  # 只复习（高级/兼容命令）
+lexi learn --count 10        # 只学新词（高级/兼容命令，默认 smart 排序）
+lexi learn --order frequency # 高频词优先
+lexi learn --order related   # 优先关联已学词
 lexi lookup mitigate         # 六级词库 → ECDICT → 个人生词
 lexi add perturbation        # 加入个人生词与学习队列
 lexi drill spelling          # 拼写
@@ -160,6 +172,13 @@ lexi drill context           # 本地例句语境填空
 lexi drill listening         # 听音辨义（本地 TTS）
 lexi drill dictation         # 单词听写（本地 TTS）
 lexi drill sentence          # 本地例句句子听写
+lexi drill synonyms          # 近义词辨析
+lexi drill similar-spelling  # 形近词辨析
+lexi drill confusion         # 个人真实混淆词强化
+lexi related mitigate        # 查看同义、反义、派生、上下位、形近词
+lexi related adapt --type spelling
+lexi relations build         # 构建/补齐 WordNet + RapidFuzz 关系库
+lexi relations stats         # 关系数量、覆盖与构建时间
 lexi say mitigate            # 播放本地发音
 lexi stats                   # 学习统计
 lexi mistakes                # 未解决错误
@@ -170,6 +189,18 @@ lexi restore <path> --yes    # 恢复
 
 所有命令都支持 `--help`。
 
+### 新词排序：不再按字母顺序
+
+默认 `new_word_order = "smart"`，综合 ECDICT 词频、已学词关联、批次内形近/同义干扰、个人混淆记录和时间预算。字母排序只保留为显式 `--order alphabetical`，用于浏览或检索，不是默认学习策略。
+
+```bash
+lexi learn --order smart      # 默认
+lexi learn --order frequency  # 纯词频，可复现对照
+lexi learn --order related    # 优先与已学词有 WordNet 关系的词
+```
+
+排序原因会写入计划摘要和 `session_items.payload_json` 的 `recommendation` 字段；关系详情可通过 `lexi related <word>` 或设置中的“词库管理 → 词汇关联查询”查看。
+
 ### 全键盘与 Textual 界面
 
 在真实 TTY 中运行时，`lexi` 与学习会话默认使用 Textual 全键盘界面；非 TTY/CI 自动使用行式界面。可用 `lexi --no-tui` 强制旧界面。
@@ -177,8 +208,10 @@ lexi restore <path> --yes    # 恢复
 | 按键 | 作用 |
 |---|---|
 | `Enter` | 提交 / 下一步 / 翻面（界面会标注当前含义） |
-| `Space` | 翻开单词卡片 |
-| `1`–`4` | 记忆评分 / 菜单快捷选择 |
+| `←` | 不记得：记录 Again，显示释义与例句 |
+| `↑` | 不太确定：显示答案后选择“实际没想起来”或“困难但想起来了” |
+| `→` | 容易：记录 Easy，直接进入下一张 |
+| `1`–`4` | 文本反馈页的高级评分 / 菜单快捷选择 |
 | `↑` / `↓` | 菜单导航 |
 | `Tab` / `Shift+Tab` | 切换焦点 |
 | `Esc` | 取消 / 返回 |
@@ -201,13 +234,19 @@ lexi restore <path> --yes    # 恢复
 - Combo 仅用于反馈，不参与 FSRS 计算，也不影响记忆评分。
 - `[effects]` 配置支持 `off`、`minimal`、`normal`、`power`；关闭后所有学习功能仍正常。
 
-### 复习评分
+### 方向键记忆评分
 
-`1` Again、`2` Hard、`3` Good、`4` Easy。`Hard` 是成功回忆但很困难，不是答错；完全忘记或看答案后才想起应记 `Again`。
+默认单词学习不再要求先翻卡再按 1–4：
 
-### 快速筛选
+- `←` 不记得：记录 `Again`，显示核心释义、搭配和例句，按 Enter 进入下一词。
+- `↑` 不太确定：先核对答案，再选择“实际没想起来”（`Again`）或“想起来了，但困难”（`Hard`）。看到答案后才想起来不会被记录为 `Hard`。
+- `→` 容易：独立、轻松回忆，记录 `Easy`，直接进入下一张；不额外展示答案。
 
-标记“已认识”不会直接永久掌握，而是安排 1、3、7、14、30、90 天的延迟抽查；抽查失败会创建/恢复卡片并记录错误。
+FSRS 的 `Good` 仍然保留给文本训练、高级评分和外部调用，只是不出现在默认三方向键界面。方向键页面不预先展示中文释义。
+
+### 每日学习计划
+
+默认先学新词，再复习到期旧词，然后做新词延迟主动回忆，最后可选错词强化。顺序可在设置中改为先旧后新或交替；到期积压时自动减少新词。新词排序继续使用词频、WordNet 关联、RapidFuzz 形近干扰和历史状态。
 
 ## 5. 启用 AI（可选）
 
@@ -273,6 +312,30 @@ data/
 `configs/settings.toml` 可调整 Textual 与 Power Mode：
 
 ```toml
+[learning]
+new_words_per_day = 20
+daily_minutes = 30
+plan_order = "new_first"  # new_first / old_first / interleaved
+adaptive_new_words = true
+delayed_recall = true
+mistake_drill = true
+new_word_order = "smart"   # smart / frequency / related / alphabetical
+
+[relations]
+enabled = true
+wordnet_enabled = true
+rapidfuzz_enabled = true
+
+[relations.spelling]
+max_neighbors = 10
+similarity_threshold = 0.80
+
+[relations.learning]
+frequency_weight = 1.0
+relatedness_weight = 0.5
+interference_penalty = 0.8
+confusion_priority = 1.0
+
 [ui]
 textual = true
 

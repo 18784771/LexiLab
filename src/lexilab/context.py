@@ -11,6 +11,7 @@ from lexilab.config.settings import Settings
 from lexilab.learning.planner import Planner
 from lexilab.learning.session import LearningSession
 from lexilab.memory.engine import MemoryService
+from lexilab.relations.service import RelationService
 from lexilab.storage.connection import Database
 from lexilab.storage.learning_repo import LearningRepository
 from lexilab.storage.schema import ensure_learning_schema, ensure_vocabulary_schema
@@ -37,10 +38,11 @@ class AppContext:
         self.repo = LearningRepository(self.learning_db)
         self.memory = MemoryService(self.repo, settings.learning.desired_retention)
         self.vocab = VocabularyService(self.vocab_repo, self.repo)
+        self.relations = RelationService(settings, self.vocab_repo, self.repo)
         self.ai = AIService(settings, self.repo)
         self.materials = MaterialService(settings, self.repo, self.vocab_repo, self.ai)
         self.analytics = AnalyticsService(self.repo, self.vocab_repo)
-        self.planner = Planner(settings, self.repo, self.vocab_repo, self.memory)
+        self.planner = Planner(settings, self.repo, self.vocab_repo, self.memory, self.relations)
         self._audio: AudioService | None = None
         self._ui: TerminalUI | None = None
         self._capabilities: dict[str, Capability] | None = None
@@ -75,7 +77,14 @@ class AppContext:
         return self._ui
 
     def learning_session(self) -> LearningSession:
-        return LearningSession(self.settings, self.repo, self.memory, self.vocab, self.ui)
+        return LearningSession(
+            self.settings,
+            self.repo,
+            self.memory,
+            self.vocab,
+            self.ui,
+            relations=self.relations,
+        )
 
     def has_vocabulary(self) -> bool:
         return self.vocab_repo.count_words() > 0

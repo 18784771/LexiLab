@@ -192,7 +192,12 @@ class TerminalUI:
             return "VERIFY"
         if mode == "new":
             return "NEW RECALL"
+        if mode == "intro":
+            return "NEW"
         return "REVIEW"
+
+    def ask_new_word_direction(self, entry: WordEntry, position: str) -> RatingResult:
+        return self.ask_recognition(entry, position, mode="intro")
 
     def _render_word_info(self, entry: WordEntry) -> None:
         blocks: list = []
@@ -239,16 +244,19 @@ class TerminalUI:
     def ask_recognition(self, entry: WordEntry, position: str, *, mode: str = "review") -> RatingResult:
         started = time.monotonic()
         hinted = False
+        revealed = False
         label = self._mode_label(mode)
         self._clear()
         self._header(label, position)
-        self._render_front(entry, mode)
+        self._show_word(entry.headword)
+        if entry.phonetic:
+            self.console.print(Align.center(Text(f"/{entry.phonetic.strip('/')}/", style="dim")))
+        self.console.print(Align.center(Text("↑ 不太确定\n← 不记得        → 容易")))
+        self._hint(f"{self._audio_hint()}[e] 详情   [q] 退出")
         while True:
             key = self.io.read_char()
             if key in {"q", "eof", "esc"}:
                 return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))
-            if key == "s":
-                return RatingResult(skipped=True, duration_ms=int((time.monotonic() - started) * 1000))
             if key == "p":
                 self._play(entry.headword)
                 hinted = True
@@ -256,34 +264,31 @@ class TerminalUI:
             if key == "e":
                 if not self._show_details(entry):
                     return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))
+                hinted = True
                 self._clear()
                 self._header(label, position)
-                self._render_front(entry, mode)
+                self._show_word(entry.headword)
+                self.console.print(Align.center(Text("↑ 不太确定\n← 不记得        → 容易")))
                 continue
-            if key == "enter":
-                break
-        self._clear()
-        self._header(label, position)
-        self._render_back(entry, mode)
-        while True:
-            key = self.io.read_char()
-            if key in {"1", "2", "3", "4"}:
-                return RatingResult(
-                    rating=int(key),
-                    hinted=hinted,
-                    duration_ms=int((time.monotonic() - started) * 1000),
-                )
-            if key in {"q", "eof", "esc"}:
-                return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))
-            if key == "p":
-                self._play(entry.headword)
-                hinted = True
-            elif key == "e":
-                if not self._show_details(entry):
-                    return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))
+            if key == "right":
+                return RatingResult(rating=4, hinted=hinted, duration_ms=int((time.monotonic() - started) * 1000))
+            if key in {"left", "up"}:
+                check = key == "up"
                 self._clear()
                 self._header(label, position)
                 self._render_back(entry, mode)
+                self._hint("[←] 实际没想起来   [→] 想起来了但困难" if check else "[Enter] 下一词")
+                while True:
+                    answer_key = self.io.read_char()
+                    if answer_key in {"q", "eof", "esc"}:
+                        return RatingResult(quit=True, duration_ms=int((time.monotonic() - started) * 1000))
+                    if not check and answer_key in {"enter", " "}:
+                        revealed = True
+                        return RatingResult(rating=1, hinted=hinted, revealed=revealed, duration_ms=int((time.monotonic() - started) * 1000))
+                    if check and answer_key == "left":
+                        return RatingResult(rating=1, hinted=hinted, revealed=True, duration_ms=int((time.monotonic() - started) * 1000))
+                    if check and answer_key == "right":
+                        return RatingResult(rating=2, hinted=hinted, revealed=True, duration_ms=int((time.monotonic() - started) * 1000))
 
     # --------------------------------------------------------------- production
     def ask_production(self, entry: WordEntry, prompt: ProductionPrompt, position: str) -> RatingResult:
@@ -393,7 +398,7 @@ class TerminalUI:
                 return None
 
     # ------------------------------------------------------------------ summary
-    def show_summary(self, summary: dict) -> None:
+    def show_summary(self, summary: dict) -> str | None:
         lines = [
             Text(f"复习卡片: {summary.get('reviewed', 0)}"),
             Text(f"新学单词: {summary.get('new_words', 0)}"),
@@ -409,3 +414,8 @@ class TerminalUI:
             self.console.print(Group(*lines))
         else:
             self.console.print(Panel(Group(*lines), title=title, border_style="green"))
+        if not self.io.interactive:
+            return None
+        self._hint("[Enter] 返回主界面   [r] 继续复习   [n] 额外学习新词   [d] 错词强化")
+        key = self.io.read_char()
+        return {"r": "review", "n": "new", "d": "drill"}.get(key)

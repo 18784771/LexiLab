@@ -49,13 +49,20 @@ def test_all_command_help(cli_env):
         ["study", "--help"],
         ["review", "--help"],
         ["learn", "--help"],
-        ["screen", "--help"],
         ["lookup", "--help"],
+        ["related", "--help"],
         ["add", "--help"],
         ["import", "--help"],
+        ["relations", "--help"],
+        ["relations", "build", "--help"],
+        ["relations", "stats", "--help"],
+        ["relations", "download", "--help"],
         ["drill", "--help"],
         ["drill", "spelling", "--help"],
         ["drill", "recall", "--help"],
+        ["drill", "synonyms", "--help"],
+        ["drill", "similar-spelling", "--help"],
+        ["drill", "confusion", "--help"],
         ["drill", "context", "--help"],
         ["drill", "listening", "--help"],
         ["drill", "dictation", "--help"],
@@ -86,6 +93,23 @@ def test_all_command_help(cli_env):
     for args in commands:
         result = runner.invoke(app, args)
         assert result.exit_code == 0, (args, result.output, result.exception)
+
+
+def test_screen_is_not_exposed_as_user_command(cli_env):
+    runner = CliRunner()
+    result = runner.invoke(app, ["screen", "--help"])
+    assert result.exit_code != 0
+
+
+def test_relations_stats_and_related_are_available(cli_env):
+    seed_cli_vocab(cli_env["data_dir"])
+    runner = CliRunner()
+    stats = runner.invoke(app, ["relations", "stats"])
+    assert stats.exit_code == 0, stats.output
+    assert "词汇关系库" in stats.output
+    related = runner.invoke(app, ["related", "mitigate"])
+    assert related.exit_code == 0, related.output
+    assert "mitigate" in related.output
 
 
 def test_doctor_reports_base_pass_and_ai_off(cli_env):
@@ -156,7 +180,7 @@ def test_full_offline_learning_through_cli(cli_env):
     result = runner.invoke(
         app,
         ["learn", "--count", "1"],
-        input="3\n\n\n3\n",
+        input="left\n\nright\n",
     )
     assert result.exit_code == 0, result.output
     assert "SESSION SUMMARY" in result.output
@@ -193,8 +217,10 @@ def test_noninteractive_menu_hides_ai_when_disabled(cli_env):
     runner = CliRunner()
     result = runner.invoke(app, [])
     assert result.exit_code == 0
-    assert "[1] 单词复习" in result.output
-    assert "[4] AI 阅读" not in result.output
+    assert "开始今日学习" in result.output
+    assert "设置" in result.output
+    assert "单词复习" not in result.output
+    assert "AI 阅读" not in result.output
     assert "非交互环境" in result.output
 
 

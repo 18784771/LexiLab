@@ -19,6 +19,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 drill_app = typer.Typer(help="词汇专项训练：拼写、主动提取、语境填空、本地听写。", no_args_is_help=True)
+relations_app = typer.Typer(help="词汇关系：WordNet/形近词构建、统计与查询。", no_args_is_help=True)
 vocab_app = typer.Typer(help="词库管理：查看、切换、暂停、历史。", no_args_is_help=True)
 config_app = typer.Typer(
     help="查看配置，或配置可选的 AI / 语音模块。",
@@ -26,6 +27,7 @@ config_app = typer.Typer(
     no_args_is_help=False,
 )
 app.add_typer(drill_app, name="drill")
+app.add_typer(relations_app, name="relations")
 app.add_typer(vocab_app, name="vocab")
 app.add_typer(config_app, name="config")
 
@@ -80,6 +82,9 @@ def init(
     vocab_file: Optional[Path] = typer.Option(None, "--vocab-file", help="本地六级 JSONL"),
     ecdict_file: Optional[Path] = typer.Option(None, "--ecdict-file", help="本地 ECDICT CSV/SQLite"),
     force_vocab: bool = typer.Option(False, "--force-vocab", help="即使已导入也重新导入词库"),
+    with_relations: bool = typer.Option(
+        False, "--with-relations", help="导入完成后构建 WordNet/形近词关系库"
+    ),
 ) -> None:
     """初始化数据目录，导入真实六级词库与 ECDICT。不会覆盖 learning.db。"""
     raise typer.Exit(
@@ -91,6 +96,7 @@ def init(
             vocab_file=vocab_file,
             ecdict_file=ecdict_file,
             force_vocab=force_vocab,
+            with_relations=with_relations,
         )
     )
 
@@ -107,12 +113,19 @@ def study(
     tc: typer.Context,
     minutes: Optional[int] = typer.Option(None, "--minutes", "-m", help="本次时间预算（分钟）"),
     new: Optional[int] = typer.Option(None, "--new", "-n", help="覆盖今日新词数量"),
-    no_training: bool = typer.Option(False, "--no-training", help="结束后不提示 AI 训练"),
+    order: Optional[str] = typer.Option(
+        None, "--order", help="新词排序: smart|frequency|related|alphabetical"
+    ),
+    no_training: bool = typer.Option(False, "--no-training", help="结束后不提示AI 训练"),
 ) -> None:
-    """开始今日学习：到期复习优先，然后学习新词。"""
+    """开始今日学习：自动按设置组织新词、到期复习、延迟回忆与错词强化。"""
     raise typer.Exit(
         actions.study_action(
-            _context(tc), minutes=minutes, new_count=new, offer_training=not no_training
+            _context(tc),
+            minutes=minutes,
+            new_count=new,
+            offer_training=not no_training,
+            order=order,
         )
     )
 
@@ -131,18 +144,14 @@ def learn(
     tc: typer.Context,
     count: Optional[int] = typer.Option(None, "--count", "-c", help="新词数量"),
     minutes: Optional[int] = typer.Option(None, "--minutes", "-m", help="时间预算（分钟）"),
+    order: Optional[str] = typer.Option(
+        None, "--order", help="新词排序: smart|frequency|related|alphabetical"
+    ),
 ) -> None:
-    """只学习新词。"""
-    raise typer.Exit(actions.learn_action(_context(tc), count=count, minutes=minutes))
-
-
-@app.command()
-def screen(
-    tc: typer.Context,
-    limit: int = typer.Option(50, "--limit", "-l", min=1, max=500, help="最多筛选多少个词"),
-) -> None:
-    """快速筛选已认识的词；已认识会安排后续抽查。"""
-    raise typer.Exit(actions.screen_action(_context(tc), limit=limit))
+    """只学习新词；默认 smart 排序，不再按字母顺序。"""
+    raise typer.Exit(
+        actions.learn_action(_context(tc), count=count, minutes=minutes, order=order)
+    )
 
 
 # ------------------------------------------------------------------- lookup
@@ -150,6 +159,26 @@ def screen(
 def lookup(tc: typer.Context, word: str = typer.Argument(..., help="要查询的单词")) -> None:
     """查询本地六级词库、ECDICT 与个人生词。"""
     raise typer.Exit(actions.lookup_action(_context(tc), word))
+
+
+@app.command()
+def related(
+    tc: typer.Context,
+    word: str = typer.Argument(..., help="要查看关系的单词"),
+    relation_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="synonym|antonym|derivation|spelling|confusion"
+    ),
+    limit: int = typer.Option(30, "--limit", "-l", min=1, max=200),
+) -> None:
+    """查看同义、反义、派生、上下位、形近与个人易混淆词。"""
+    kind = None if relation_type is None else relation_type.strip().lower()
+    if kind == "spelling":
+        kind = "orthographic_similar"
+    elif kind == "confusion":
+        kind = "user_confusion"
+    raise typer.Exit(
+        actions.related_action(_context(tc), word, relation_type=kind, limit=limit)
+    )
 
 
 @app.command()
@@ -193,6 +222,33 @@ def drill_recall(
 ) -> None:
     """中译英主动提取训练（不改变 FSRS 状态）。"""
     raise typer.Exit(actions.drill_action(_context(tc), "recall", count=count))
+
+
+@drill_app.command("synonyms")
+def drill_synonyms(
+    tc: typer.Context,
+    count: int = typer.Option(10, "--count", "-c", min=1, max=50),
+) -> None:
+    """近义词辨析：结合 ECDICT 释义进行主动提取。"""
+    raise typer.Exit(actions.relation_drill_action(_context(tc), "synonym", count=count))
+
+
+@drill_app.command("similar-spelling")
+def drill_similar_spelling(
+    tc: typer.Context,
+    count: int = typer.Option(10, "--count", "-c", min=1, max=50),
+) -> None:
+    """形近词辨析：用 Damerau-Levenshtein 发现的形近词对训练。"""
+    raise typer.Exit(actions.relation_drill_action(_context(tc), "similar-spelling", count=count))
+
+
+@drill_app.command("confusion")
+def drill_confusion(
+    tc: typer.Context,
+    count: int = typer.Option(10, "--count", "-c", min=1, max=50),
+) -> None:
+    """个人易混淆词强化：优先训练真实错误输入产生的词对。"""
+    raise typer.Exit(actions.relation_drill_action(_context(tc), "confusion", count=count))
 
 
 @drill_app.command("context")
@@ -479,6 +535,46 @@ def vocab_words(
 ) -> None:
     """预览当前词库或搜索词条。"""
     raise typer.Exit(actions.vocab_words_action(_context(tc), limit=limit, search=search))
+
+
+@relations_app.command("build")
+def relations_build(
+    tc: typer.Context,
+    force: bool = typer.Option(False, "--force", help="清空后完整重建"),
+    wordnet: bool = typer.Option(True, "--wordnet/--no-wordnet", help="构建 WordNet 关系"),
+    spelling: bool = typer.Option(True, "--spelling/--no-spelling", help="构建形近词关系"),
+    download: bool = typer.Option(False, "--download", help="先显式下载 WordNet 数据"),
+) -> None:
+    """构建词汇关系库。可重复执行，默认只补齐新词。"""
+    raise typer.Exit(
+        actions.relations_build_action(
+            _context(tc),
+            force=force,
+            wordnet=wordnet,
+            spelling=spelling,
+            download=download,
+        )
+    )
+
+
+@relations_app.command("stats")
+def relations_stats(tc: typer.Context) -> None:
+    """查看关系数量、来源、覆盖与个人混淆统计。"""
+    raise typer.Exit(actions.relations_stats_action(_context(tc)))
+
+
+@relations_app.command("download")
+def relations_download(tc: typer.Context) -> None:
+    """显式下载 NLTK WordNet 数据；正常启动不会自动下载。"""
+    try:
+        ok = _context(tc).relations.download_wordnet()
+    except Exception as exc:
+        typer.secho(f"WordNet 下载失败: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+    if not ok:
+        typer.secho("WordNet 下载未完成。", fg=typer.colors.YELLOW, err=True)
+        raise typer.Exit(1)
+    typer.secho("WordNet 数据已就绪。", fg=typer.colors.GREEN)
 
 
 @app.command()

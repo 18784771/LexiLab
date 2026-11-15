@@ -57,8 +57,8 @@ LexiLab 是一个本地单机 CLI 英语学习工具。核心目标是：用成�
 - `TextualSessionUI` / `LexiLabSessionApp`：真实 TTY 下的全键盘界面。学习会话运行在
   Textual worker 线程中，UI 通过 `call_from_thread` 展示页面并等待用户输入；输入、
   评分、提示、发音、退出均不需要鼠标。
-- `LexiLabMenuApp`：动态主菜单；`↑/↓` 与数字键选择，`Enter` 进入，`Ctrl+P` 命令面
-  板，`Ctrl+Q` 退出。
+- `LexiLabMenuApp`：极简主菜单，仅“开始今日学习 / 设置 / 退出”；默认焦点第一项，`Enter` 开始，`↑/↓` 选择。管理功能全部进入设置子菜单。
+- `TextualSessionUI` 的单词页使用方向键状态机：`←` Again、`↑` 核对后 Again/Hard、`→` Easy；每张卡锁定一次评分，单卡单日志。
 - `LexiLabDrillApp` / `LexiLabWritingApp` / `LexiLabReadingApp` /
   `LexiLabListeningApp`：拼写、中译英、写作、阅读、听力的独立 Textual 界面。
 - `TerminalUI`：`--no-tui` 或非 TTY 环境下的行式回退实现，基于 Rich、`tty`/`msvcrt`
@@ -125,7 +125,16 @@ LexiLab 是一个本地单机 CLI 英语学习工具。核心目标是：用成�
 - 播放器自动探测 `ffplay` / `aplay` / `paplay` / `afplay` / PowerShell。
 - 合成或播放失败只影响听力功能，不影响其他学习功能。
 
-### 2.8 统计（`lexilab/analytics`）
+### 2.8 词汇关系引擎（`lexilab/relations`）
+
+- `WordNetAnalyzer`：只使用 NLTK WordNet ABI 真实提供的关系：synset 内同义、lemma 反义、上下位、`derivationally_related_forms`、`similar_tos`、`also_sees`。每条关系保存 `source_sense` / `target_sense`，保留多义词来源。
+- `SpellingAnalyzer`：RapidFuzz Damerau-Levenshtein normalized similarity（0–1）；按长度桶限制候选，解析 ECDICT `exchange` 排除同词形变化，限制每词邻居数。
+- `RelationBuilder`：显式构建，可强制重建或增量补齐；WordNet 数据缺失时不自动联网下载。
+- `RelationService`：关系查询、个人混淆记录、辨析词对选择。
+- `SmartNewWordOrderer`：词频 + 已学词关联 + 干扰惩罚 + 混淆优先；不修改 FSRS。
+- 静态关系存 `vocabulary.db.vocab_relations`，可重建；个人混淆存 `learning.db.confusion_pairs`，属于学习记录，不能被词库重建覆盖。
+
+### 2.9 统计（`lexilab/analytics`）
 
 只从真实记录计算：
 
@@ -140,22 +149,23 @@ LexiLab 是一个本地单机 CLI 英语学习工具。核心目标是：用成�
 
 | 数据库 | 内容 | 重建策略 |
 |---|---|---|
-| `vocabulary.db` | 词条、释义、例句、短语、同近义词、词书、ECDICT | 可重建、可重复导入 |
-| `learning.db` | 卡片、复习日志、训练日志、错误、材料、会话、设置 | 永不因词库操作被覆盖；备份/恢复单独处理 |
+| `vocabulary.db` | 词条、释义、例句、短语、词书、ECDICT、静态词汇关系、词频缓存 | 可重建、可重复导入 |
+| `learning.db` | 卡片、复习日志、训练日志、错误、个人混淆对、材料、会话、设置 | 永不因词库操作被覆盖；备份/恢复单独处理 |
 
 关联键为规范化词条 `word_key`，例如 `mitigate`。这样即使重新导入词库导致自增 ID 变化，学习记录仍然有效。
 
 ## 4. 数据流
 
-### 复习
+### 每日学习
 
 ```
-Planner 查询到期卡片
-  → LearningSession 展示问题
-  → SessionUI 返回答案/评分
+Planner 读取设置（new_first / old_first / interleaved）
+  → 新词初学 + 到期复习 + 延迟回忆（自动衔接）
+  → LearningSession 用方向键展示问题
+  → SessionUI 返回 Again/Hard/Easy
   → MemoryService 调用 FSRS 计算新状态
   → 同一事务：更新 cards + 插入 review_logs
-  → 下一题
+  → 下一题 → 可选错词强化 → 总结
 ```
 
 ### 新词
@@ -182,6 +192,17 @@ Planner 选词
   → 学习引擎下次优先安排强化
 ```
 
+### 新词排序
+
+```
+ECDICT 词频缓存 + 已学词关系 + 个人混淆 + 批次内干扰
+  → SmartNewWordOrderer 评分（可解释理由）
+  → Planner 插入 NEW_INTRO / NEW_RECALL
+  → LearningSession 正常走 FSRS
+```
+
+关系引擎只决定“学哪些新词、以什么顺序进入会话”，不改变到期复习优先级，也不写 FSRS 字段。
+
 ## 5. 事务与故障处理
 
 - 所有“状态变更 + 日志”组合操作使用 `BEGIN IMMEDIATE` 事务；异常回滚。
@@ -196,6 +217,8 @@ Planner 选词
 cli → ui / services
 ui → services (Model/View) ; ui 不依赖具体 AI
 ui.effects → 纯表现层事件 ; 不依赖 storage / fsrs
+learning.ordering → relations 查询 ; 不写 FSRS
+relations → wordnet / rapidfuzz / storage ; 不依赖 CLI
 learning → memory / vocabulary / storage 协议
 memory → fsrs + storage
 ai → schemas/prompts ; 不依赖 storage
@@ -217,7 +240,10 @@ storage → sqlite3 ; 不含学习策略
 - 单元：词条解析、答案判定、词形覆盖、FSRS 封装、Planner 规则。
 - 集成：导入幂等、事务回滚、会话恢复、材料缓存、备份恢复。
 - 交互：Textual `run_test` 验证全键盘操作、输入与快捷键隔离、Ctrl+T 特效开关、提示
-  不计连击、Ctrl+Q 保留未完成题、菜单方向键与 TTE 帧适配；非 TTY 回退。
+  不计连击、Ctrl+Q 保留未完成题、菜单方向键、关系浏览器与 TTE 帧适配；非 TTY 回退。
+- 方向键：Right/Easy、Left/Again、Up+Left/Again、Up+Right/Hard、重复按键去重；文本输入方向键不触发评分。
+- 每日计划：new_first/old_first/interleaved、无强制 VERIFY、总结 R/N/D 路由、设置目标写回。
+- 关系：WordNet 关系类型、多义词、RapidFuzz 归一化/字符换位/词形排除、关系去重、增量构建、FSRS 不变、混淆持久化、智能排序因素与干扰控制。
 - AI：MockProvider、无效 JSON、空响应、超时、有限重试、覆盖率不足。
 - E2E（可选，真实网络/密钥）：真实导入、真实 DeepSeek 调用、真实 TTS。默认测试不
   消耗付费额度。

@@ -303,6 +303,257 @@ class VocabularyRepository:
     def all_word_keys(self) -> list[str]:
         return [r["word_key"] for r in self.db.query_all("SELECT word_key FROM words ORDER BY id")]
 
+    def book_word_keys(self, book_code: str | None = None) -> list[str]:
+        if book_code:
+            rows = self.db.query_all(
+                """SELECT w.word_key FROM word_book_memberships m
+                   JOIN words w ON w.id=m.word_id JOIN word_books b ON b.id=m.word_book_id
+                   WHERE b.code=? ORDER BY w.id""",
+                (book_code,),
+            )
+        else:
+            rows = self.db.query_all("SELECT word_key FROM words ORDER BY id")
+        return [row["word_key"] for row in rows]
+
+    def new_word_rows(self, book_code: str | None = None) -> list[dict]:
+        """Return candidate rows with ECDICT frequency metadata and source rank.
+
+        ECDICT is fetched in indexed batches instead of a 770k-row LEFT JOIN;
+        this keeps smart ordering responsive on the full dictionary.
+        """
+        self.ensure_word_metrics()
+        if book_code:
+            rows = self.db.query_all(
+                """SELECT w.word_key, m.rank, e.frq, e.bnc, e.collins, e.oxford
+                   FROM word_book_memberships m
+                   JOIN words w INDEXED BY idx_words_id_key ON w.id=m.word_id
+                   JOIN word_books b ON b.id=m.word_book_id
+                   LEFT JOIN word_metrics e ON e.word_key=w.word_key
+                   WHERE b.code=? ORDER BY w.id""",
+                (book_code,),
+            )
+        else:
+            rows = self.db.query_all(
+                """SELECT w.word_key, NULL AS rank, e.frq, e.bnc, e.collins, e.oxford
+                   FROM words w LEFT JOIN word_metrics e ON e.word_key=w.word_key
+                   ORDER BY w.id"""
+            )
+        return [dict(row) for row in rows]
+
+    def ensure_word_metrics(self) -> int:
+        """Populate the compact ECDICT metrics cache once per vocabulary import."""
+        metrics = int(self.db.scalar("SELECT COUNT(*) FROM word_metrics", (), 0) or 0)
+        words = int(self.db.scalar("SELECT COUNT(*) FROM words", (), 0) or 0)
+        if words <= 0 or metrics > 0 or self.get_metadata("metrics.built_at"):
+            return metrics
+        return self.refresh_word_metrics()
+
+    def refresh_word_metrics(self) -> int:
+        now = utcnow_iso()
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM word_metrics")
+            conn.execute(
+                """INSERT INTO word_metrics(word_key, frq, bnc, collins, oxford, updated_at)
+                   SELECT w.word_key, e.frq, e.bnc, e.collins, e.oxford, ?
+                   FROM words w JOIN ecdict e ON e.word=w.word_key COLLATE NOCASE""",
+                (now,),
+            )
+            count = int(conn.execute("SELECT COUNT(*) FROM word_metrics").fetchone()[0])
+        self.set_metadata("metrics.built_at", now)
+        return count
+
+    def ecdict_metadata(self, word_keys: list[str]) -> dict[str, dict]:
+        result: dict[str, dict] = {}
+        keys = [normalize_word(k) for k in word_keys if normalize_word(k)]
+        for start in range(0, len(keys), 400):
+            batch = keys[start : start + 400]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self.db.query_all(
+                f"""SELECT word, frq, bnc, collins, oxford FROM ecdict
+                    WHERE word IN ({placeholders}) COLLATE NOCASE""",
+                tuple(batch),
+            )
+            for row in rows:
+                result[normalize_word(row["word"])] = dict(row)
+        return result
+
+    def word_metadata(self, word_key: str) -> dict | None:
+        row = self.db.query_one(
+            """SELECT w.word_key, w.headword, w.translation, w.pos,
+                      e.frq, e.bnc, e.collins, e.oxford
+               FROM words w LEFT JOIN ecdict e ON e.word=w.word_key COLLATE NOCASE
+               WHERE w.word_key=?""",
+            (normalize_word(word_key),),
+        )
+        return dict(row) if row else None
+
+    def ecdict_exchanges(self, word_keys: list[str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        keys = [normalize_word(k) for k in word_keys if normalize_word(k)]
+        for start in range(0, len(keys), 400):
+            batch = keys[start : start + 400]
+            placeholders = ",".join("?" for _ in batch)
+            rows = self.db.query_all(
+                f"SELECT word, exchange FROM ecdict WHERE word IN ({placeholders}) COLLATE NOCASE",
+                tuple(batch),
+            )
+            for row in rows:
+                result[normalize_word(row["word"])] = row["exchange"] or ""
+        return result
+
+    # -------------------------------------------------------------- relations
+    def insert_relations(self, records: list) -> int:
+        """Insert static relation records with deduplication."""
+        if not records:
+            return 0
+        now = utcnow_iso()
+        rows = [
+            (
+                r.source_word,
+                r.target_word,
+                r.relation_type,
+                r.source_sense,
+                r.target_sense,
+                r.part_of_speech,
+                r.score,
+                r.source,
+                now,
+            )
+            for r in records
+            if r.source_word and r.target_word and r.source_word != r.target_word
+        ]
+        with self.db.transaction() as conn:
+            before = int(conn.execute("SELECT COUNT(*) FROM vocab_relations").fetchone()[0])
+            conn.executemany(
+                """INSERT OR IGNORE INTO vocab_relations(
+                       source_word, target_word, relation_type, source_sense,
+                       target_sense, part_of_speech, score, source, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            after = int(conn.execute("SELECT COUNT(*) FROM vocab_relations").fetchone()[0])
+        return after - before
+
+    def relation_views(
+        self,
+        word_key: str,
+        relation_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        params: list = [normalize_word(word_key)]
+        type_sql = ""
+        if relation_type:
+            type_sql = " AND r.relation_type=?"
+            params.append(relation_type)
+        params.append(limit)
+        rows = self.db.query_all(
+            f"""SELECT r.source_word, r.target_word, r.relation_type, r.source_sense,
+                       r.target_sense, r.part_of_speech, r.score, r.source,
+                       COALESCE(w.headword, e.word, r.target_word) AS headword,
+                       COALESCE(w.translation, e.translation, '') AS translation,
+                       COALESCE(w.pos, e.pos, r.part_of_speech, '') AS display_pos
+                FROM vocab_relations r
+                LEFT JOIN words w ON w.word_key=r.target_word
+                LEFT JOIN ecdict e ON e.word=r.target_word COLLATE NOCASE
+                WHERE r.source_word=?{type_sql}
+                ORDER BY r.score DESC, r.relation_type, r.target_word
+                LIMIT ?""",
+            tuple(params),
+        )
+        return [dict(row) for row in rows]
+
+    def relations_for_sources(self, source_words: set[str]) -> list[dict]:
+        rows: list[dict] = []
+        keys = list(source_words)
+        for start in range(0, len(keys), 300):
+            batch = keys[start : start + 300]
+            placeholders = ",".join("?" for _ in batch)
+            result = self.db.query_all(
+                f"""SELECT source_word, target_word, relation_type, score
+                    FROM vocab_relations WHERE source_word IN ({placeholders})""",
+                tuple(batch),
+            )
+            rows.extend(dict(row) for row in result)
+        return rows
+
+    def relation_pairs(self, relation_type: str, limit: int = 200) -> list[dict]:
+        rows = self.db.query_all(
+            """SELECT source_word, target_word, relation_type, score
+               FROM vocab_relations WHERE relation_type=?
+               ORDER BY score DESC, source_word, target_word LIMIT ?""",
+            (relation_type, limit),
+        )
+        return [dict(row) for row in rows]
+
+    def has_relation(self, source: str, target: str, relation_types: tuple[str, ...]) -> bool:
+        if not relation_types:
+            return False
+        placeholders = ",".join("?" for _ in relation_types)
+        row = self.db.query_one(
+            f"""SELECT 1 FROM vocab_relations
+                WHERE source_word=? AND target_word=? AND relation_type IN ({placeholders})
+                LIMIT 1""",
+            (normalize_word(source), normalize_word(target), *relation_types),
+        )
+        return row is not None
+
+    def relation_stats(self) -> dict:
+        rows = self.db.query_all(
+            "SELECT relation_type, source, COUNT(*) AS n FROM vocab_relations GROUP BY relation_type, source"
+        )
+        by_type: dict[str, int] = {}
+        by_source: dict[str, int] = {}
+        for row in rows:
+            by_type[row["relation_type"]] = by_type.get(row["relation_type"], 0) + int(row["n"])
+            by_source[row["source"]] = by_source.get(row["source"], 0) + int(row["n"])
+        return {
+            "relations": sum(by_type.values()),
+            "by_type": by_type,
+            "by_source": by_source,
+            "source_words": int(
+                self.db.scalar("SELECT COUNT(DISTINCT source_word) FROM vocab_relations", (), 0) or 0
+            ),
+            "target_words": int(
+                self.db.scalar("SELECT COUNT(DISTINCT target_word) FROM vocab_relations", (), 0) or 0
+            ),
+        }
+
+    def clear_relations(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM vocab_relations")
+            conn.execute("DELETE FROM relation_build_state")
+
+    def clear_relations_by_source(self, source: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM vocab_relations WHERE source=?", (source,))
+            if source == "wordnet":
+                conn.execute("UPDATE relation_build_state SET wordnet_built_at=NULL")
+            elif source == "rapidfuzz":
+                conn.execute("UPDATE relation_build_state SET spelling_built_at=NULL")
+
+    def relation_built_words(self, source: str) -> set[str]:
+        column = "wordnet_built_at" if source == "wordnet" else "spelling_built_at"
+        rows = self.db.query_all(
+            f"SELECT word_key FROM relation_build_state WHERE {column} IS NOT NULL"
+        )
+        return {row["word_key"] for row in rows}
+
+    def mark_relation_built(self, word_keys: list[str], source: str) -> None:
+        if not word_keys:
+            return
+        column = "wordnet_built_at" if source == "wordnet" else "spelling_built_at"
+        now = utcnow_iso()
+        with self.db.transaction() as conn:
+            for key in word_keys:
+                conn.execute(
+                    f"""INSERT INTO relation_build_state(word_key, {column}, updated_at)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(word_key) DO UPDATE SET {column}=excluded.{column},
+                          updated_at=excluded.updated_at""",
+                    (normalize_word(key), now, now),
+                )
+
+
     # ------------------------------------------------------------------ ecdict
     def import_ecdict_csv(self, path: str | Path, batch_size: int = 4000) -> int:
         source = Path(path)

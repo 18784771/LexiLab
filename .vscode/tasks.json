@@ -1,0 +1,488 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "cleanup-alt-screen",
+			"type": "shell",
+			"command": "pkill -f 'lexi related' || true; echo cleaned",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "cleanup-alt-screen-2",
+			"type": "shell",
+			"command": "ps -ef | grep -E 'lexi|textual|python' | grep -v grep | head -30; echo ---; pkill -f '/mnt/e/LexiLab/.venv/bin/lexi' || true; echo killed",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "run-tests-relations",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests && .venv/bin/pytest -q",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "related-smoke",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && LEXILAB_NO_TUI=1 .venv/bin/lexi related mitigate | head -80 && echo '--- stats ---' && .venv/bin/lexi relations stats | head -40",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "relation-acceptance",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python scripts/relation_acceptance.py --limit 50 > /tmp/relation_acceptance.out 2>&1; head -120 /tmp/relation_acceptance.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "relation-samples",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python - <<'PY'\nfrom lexilab.config.settings import load_settings\nfrom lexilab.context import AppContext\ns=load_settings(); s.audio.enabled=False; ctx=AppContext(s)\nfor w in ['mitigate','predict','bank','adapt']:\n print('###',w)\n for k,vs in ctx.relations.groups(w).items():\n  print(k, [(v.headword, v.target_sense or v.source_sense, v.score) for v in vs[:8]])\nPY",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "schema-tests",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -R \"schema_versions\\|VOCAB_SCHEMA_VERSION\\|LEARNING_SCHEMA_VERSION\" -n tests/unit/test_schema.py tests | head -40",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "drill-pairs",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python - <<'PY'\nfrom lexilab.config.settings import load_settings\nfrom lexilab.context import AppContext\ns=load_settings(); s.audio.enabled=False; ctx=AppContext(s)\nprint('synonym', ctx.relations.drill_pairs('synonym',5))\nprint('spelling', ctx.relations.drill_pairs('similar-spelling',5))\nprint('confusion', ctx.relations.drill_pairs('confusion',5))\nPY",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "spelling-pairs-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python - <<'PY'\nfrom lexilab.config.settings import load_settings\nfrom lexilab.context import AppContext\ns=load_settings(); s.audio.enabled=False; ctx=AppContext(s)\nprint(ctx.relations.drill_pairs('similar-spelling',8))\nPY",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "begin-groups",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python - <<'PY'\nfrom lexilab.config.settings import load_settings\nfrom lexilab.context import AppContext\ns=load_settings(); s.audio.enabled=False; ctx=AppContext(s)\nprint(ctx.relations.groups('begin').keys())\nprint([v.headword for v in ctx.relations.groups('begin').get('synonym',[])][:10])\nPY",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "count-tests-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | tail -3",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "count-tests-3",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | grep -E '^[0-9]+ tests? collected' || .venv/bin/pytest --collect-only | tail -3",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "doctor-relations",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/lexi doctor 2>&1 | head -35",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests && .venv/bin/pytest -q",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "doc-count-check",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -R \"101 passed\\|92 passed\\|76 passed\\|25.4 MB\" -n README.md docs | head -30",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "related-predict",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && LEXILAB_NO_TUI=1 .venv/bin/lexi related predict | head -45",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests && .venv/bin/pytest -q",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-status",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git status --short && echo '--- diff stat ---' && git diff --stat",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "lemma-check",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python scratch_lemma.py",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "cleanup-scratch",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && rm -f scratch_lemma.py",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests-3",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests && .venv/bin/pytest -q",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests-4",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | tail -1 && .venv/bin/ruff check src tests && .venv/bin/pytest -q",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "ruff-scripts",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests-5",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts && .venv/bin/pytest -q && .venv/bin/pytest --collect-only -q | grep -c '::'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests-6",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts && .venv/bin/pytest -q",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "relation-acceptance-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python scripts/relation_acceptance.py --limit 50 > /tmp/relation_acceptance2.out 2>&1; echo exit:$?; tail -5 /tmp/relation_acceptance2.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "acceptance-summary",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/python - <<'PY'\nimport json\nr=json.load(open('reports/relation_acceptance.json'))\nfor k,v in r['strategies'].items():\n print(k, v['words'][:15])\n print(v['metrics'])\nPY",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "report-check",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -n \"C/D\\|D 智能\\|50/50\\|related_to_learned\\|当前只有\" docs/VOCABULARY_RELATION_REPORT.md",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "diff-check",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git diff --check; echo exit:$?",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "count-final",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | awk -F': ' '/: [0-9]+$/{s+=$2} END{print \"collected\",s}'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "count-grep",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -R \"109 passed\\|110 passed\\|108 passed\\|92 passed\\|101 passed\" -n README.md docs | head -20",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-status-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git status --short && echo '---' && git diff --stat | tail -8",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "settings-actions",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -n \"def config_action\\|def stats_action\\|def screen_action\\|def config_ai_action\\|def config_audio_action\" -A80 src/lexilab/cli/actions.py",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "settings-tests",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -R \"new_words_per_day\\|daily_minutes\\|max_particles\" -n tests | head -60",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "ruff-after-refactor",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts 2>&1 | head -80",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "tests-after-refactor",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest -q 2>&1 | tail -80",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "textual-tests",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 90 .venv/bin/pytest tests/unit/test_textual_ui.py -q 2>&1 | tail -60; echo EXIT:${PIPESTATUS[0]}",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "textual-verbose",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 60 .venv/bin/pytest tests/unit/test_textual_ui.py -vv -s 2>&1 | tail -80; echo EXIT:${PIPESTATUS[0]}",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "textual-verbose2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 60 .venv/bin/pytest tests/unit/test_textual_ui.py -x -vv --tb=short 2>&1 | tail -120; echo EXIT:${PIPESTATUS[0]}",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "textual-fileout",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 60 .venv/bin/pytest tests/unit/test_textual_ui.py -x -vv --tb=short > /tmp/ttest.out 2>&1; echo EXIT:$?; tail -100 /tmp/ttest.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "t1",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 50 .venv/bin/pytest tests/unit/test_textual_ui.py::test_textual_new_word_session_is_keyboard_only -q > /tmp/t1.out 2>&1; echo EXIT:$?; tail -60 /tmp/t1.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "textual-all-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 90 .venv/bin/pytest tests/unit/test_textual_ui.py -q > /tmp/tt.out 2>&1; echo EXIT:$?; tail -80 /tmp/tt.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "all-tests-after-menu",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 300 .venv/bin/pytest -q > /tmp/all.out 2>&1; echo EXIT:$?; tail -100 /tmp/all.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "cli-test-details",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && grep -n \"test_full_offline_learning_through_cli\\|test_noninteractive_menu_hides_ai_when_disabled\" -A45 tests/integration/test_cli.py",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "all-tests-after-fixes",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 300 .venv/bin/pytest -q > /tmp/all2.out 2>&1; echo EXIT:$?; tail -100 /tmp/all2.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "direction-tests",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 120 .venv/bin/pytest tests/unit/test_direction_ui.py -q > /tmp/dir.out 2>&1; echo EXIT:$?; tail -100 /tmp/dir.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "direction-verbose",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 60 .venv/bin/pytest tests/unit/test_direction_ui.py -x -vv --tb=short > /tmp/dir2.out 2>&1; echo EXIT:$?; tail -100 /tmp/dir2.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "direction-tests-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 120 .venv/bin/pytest tests/unit/test_direction_ui.py -q > /tmp/dir3.out 2>&1; echo EXIT:$?; tail -100 /tmp/dir3.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "all-tests-3",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 300 .venv/bin/pytest -q > /tmp/all3.out 2>&1; echo EXIT:$?; tail -120 /tmp/all3.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "menu-default-focus",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 40 .venv/bin/pytest tests/unit/test_textual_ui.py::test_textual_menu_default_focus_starts_today_lesson -q > /tmp/menu.out 2>&1; echo EXIT:$?; cat /tmp/menu.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "all-tests-4",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 300 .venv/bin/pytest -q > /tmp/all4.out 2>&1; echo EXIT:$?; tail -100 /tmp/all4.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "menu-evidence",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && LEXILAB_NO_TUI=1 .venv/bin/lexi < /dev/null 2>&1 | head -50",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-count",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | awk -F': ' '/: [0-9]+$/{s+=$2} END{print \"collected\",s}'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "cli-help-check",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/lexi --help | grep -E \"screen|review|learn|study|related\"",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "external-dir-db",
+			"type": "shell",
+			"command": "cd /tmp && LEXILAB_CONFIG=/mnt/e/LexiLab/configs/settings.toml /mnt/e/LexiLab/.venv/bin/lexi stats --json 2>&1 | head -25",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "all-tests-5",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 300 .venv/bin/pytest -q > /tmp/all5.out 2>&1; echo EXIT:$?; tail -80 /tmp/all5.out; .venv/bin/pytest --collect-only -q | awk -F': ' '/: [0-9]+$/{s+=$2} END{print \"collected\",s}'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "ruff-final",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "direction-evidence",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 120 .venv/bin/pytest tests/unit/test_direction_ui.py -vv > /tmp/dir_evidence.out 2>&1; echo EXIT:$?; cat /tmp/dir_evidence.out | tail -30",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "arrow-text-test",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 60 .venv/bin/pytest tests/unit/test_direction_ui.py::test_text_input_arrows_do_not_trigger_memory_rating -q > /tmp/arrowtext.out 2>&1; echo EXIT:$?; cat /tmp/arrowtext.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "summary-choice",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && timeout 60 .venv/bin/pytest tests/unit/test_direction_ui.py::test_summary_can_request_continued_review -q > /tmp/sum.out 2>&1; echo EXIT:$?; cat /tmp/sum.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "count-124",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | awk -F': ' '/: [0-9]+$/{s+=$2} END{print s}'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "count-final2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/pytest --collect-only -q | awk -F': ' '/: [0-9]+$/{s+=$2} END{print s}'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "all-tests-6",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts && timeout 300 .venv/bin/pytest -q > /tmp/all6.out 2>&1; echo EXIT:$?; tail -100 /tmp/all6.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-all-tests",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts && timeout 300 .venv/bin/pytest -q > /tmp/all7.out 2>&1; echo EXIT:$?; tail -100 /tmp/all7.out; .venv/bin/pytest --collect-only -q | awk -F': ' '/: [0-9]+$/{s+=$2} END{print \"collected\",s}'",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-status-3",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git status --short && echo '---' && git diff --stat | tail -12",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "diff-check-2",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git diff --check; echo exit:$?",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "diff-check-3",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git diff --check; echo exit:$?",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "final-tests-8",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && .venv/bin/ruff check src tests scripts && timeout 300 .venv/bin/pytest -q > /tmp/all8.out 2>&1; echo EXIT:$?; tail -80 /tmp/all8.out",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "diff-check-final",
+			"type": "shell",
+			"command": "cd /mnt/e/LexiLab && git diff --check; echo exit:$?",
+			"args": [],
+			"isBackground": false
+		}
+	]
+}

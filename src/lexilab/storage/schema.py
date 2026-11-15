@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from lexilab.storage.connection import Database
 
-VOCAB_SCHEMA_VERSION = 1
-LEARNING_SCHEMA_VERSION = 2
+VOCAB_SCHEMA_VERSION = 3
+LEARNING_SCHEMA_VERSION = 3
 
 
 def utcnow() -> datetime:
@@ -93,6 +93,33 @@ _VOCAB_STATEMENTS = [
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS vocab_relations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_word TEXT NOT NULL,
+        target_word TEXT NOT NULL,
+        relation_type TEXT NOT NULL,
+        source_sense TEXT NOT NULL DEFAULT '',
+        target_sense TEXT NOT NULL DEFAULT '',
+        part_of_speech TEXT NOT NULL DEFAULT '',
+        score REAL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (source_word, target_word, relation_type, source_sense, target_sense, source)
+    )""",
+    """CREATE TABLE IF NOT EXISTS relation_build_state (
+        word_key TEXT PRIMARY KEY,
+        wordnet_built_at TEXT,
+        spelling_built_at TEXT,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS word_metrics (
+        word_key TEXT PRIMARY KEY,
+        frq INTEGER,
+        bnc INTEGER,
+        collins INTEGER,
+        oxford INTEGER,
+        updated_at TEXT NOT NULL
+    )""",
     """CREATE TABLE IF NOT EXISTS ecdict (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         word TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -111,6 +138,7 @@ _VOCAB_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_words_headword ON words(headword COLLATE NOCASE)",
     "CREATE INDEX IF NOT EXISTS idx_words_source ON words(source)",
+    "CREATE INDEX IF NOT EXISTS idx_words_id_key ON words(id, word_key)",
     "CREATE INDEX IF NOT EXISTS idx_definitions_word ON definitions(word_id, sort_order)",
     "CREATE INDEX IF NOT EXISTS idx_examples_word ON examples(word_id, sort_order)",
     "CREATE INDEX IF NOT EXISTS idx_phrases_word ON phrases(word_id, sort_order)",
@@ -118,6 +146,10 @@ _VOCAB_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_membership_book ON word_book_memberships(word_book_id, rank)",
     "CREATE INDEX IF NOT EXISTS idx_raw_word ON raw_entries(word_key)",
     "CREATE INDEX IF NOT EXISTS idx_ecdict_frq ON ecdict(frq)",
+    "CREATE INDEX IF NOT EXISTS idx_vocab_relations_source ON vocab_relations(source_word, relation_type)",
+    "CREATE INDEX IF NOT EXISTS idx_vocab_relations_target ON vocab_relations(target_word, relation_type)",
+    "CREATE INDEX IF NOT EXISTS idx_vocab_relations_score ON vocab_relations(score)",
+    "CREATE INDEX IF NOT EXISTS idx_word_metrics_frq ON word_metrics(frq)",
 ]
 
 _LEARNING_STATEMENTS = [
@@ -260,6 +292,16 @@ _LEARNING_STATEMENTS = [
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS confusion_pairs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_word TEXT NOT NULL,
+        target_word TEXT NOT NULL,
+        skill TEXT NOT NULL DEFAULT 'recall',
+        count INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        UNIQUE (source_word, target_word)
+    )""",
     """CREATE TABLE IF NOT EXISTS schema_versions (
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL
@@ -275,6 +317,8 @@ _LEARNING_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_session_items_session ON session_items(session_id, seq)",
     "CREATE INDEX IF NOT EXISTS idx_materials_kind ON materials(kind, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_attempts_material ON material_attempts(material_id)",
+    "CREATE INDEX IF NOT EXISTS idx_confusion_source ON confusion_pairs(source_word, count)",
+    "CREATE INDEX IF NOT EXISTS idx_confusion_target ON confusion_pairs(target_word, count)",
 ]
 
 
@@ -300,13 +344,9 @@ def ensure_vocabulary_schema(db: Database) -> None:
 
 
 def ensure_learning_schema(db: Database) -> None:
-    # v1: base tables. v2: material_attempts.hinted was added.
+    # v1: base tables. v2: material_attempts.hinted. v3: confusion_pairs.
     _ensure(db, _LEARNING_STATEMENTS, 1)
     with db.transaction() as conn:
-        row = conn.execute("SELECT MAX(version) AS v FROM schema_versions").fetchone()
-        current = int(row["v"] or 0)
-        if current >= 2:
-            return
         columns = {
             r["name"] for r in conn.execute("PRAGMA table_info(material_attempts)").fetchall()
         }
@@ -315,6 +355,28 @@ def ensure_learning_schema(db: Database) -> None:
                 "ALTER TABLE material_attempts ADD COLUMN hinted INTEGER NOT NULL DEFAULT 0"
             )
         conn.execute(
-            "INSERT OR REPLACE INTO schema_versions(version, applied_at) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO schema_versions(version, applied_at) VALUES(?, ?)",
             (2, utcnow_iso()),
+        )
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS confusion_pairs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_word TEXT NOT NULL,
+                target_word TEXT NOT NULL,
+                skill TEXT NOT NULL DEFAULT 'recall',
+                count INTEGER NOT NULL DEFAULT 1,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                UNIQUE (source_word, target_word)
+            )"""
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_confusion_source ON confusion_pairs(source_word, count)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_confusion_target ON confusion_pairs(target_word, count)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_versions(version, applied_at) VALUES(?, ?)",
+            (3, utcnow_iso()),
         )

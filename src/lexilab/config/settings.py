@@ -15,8 +15,13 @@ DEFAULT_CONFIG_TEXT = """\
 data_dir = "data"
 
 [learning]
-new_words_per_day = 10
+new_words_per_day = 20
 daily_minutes = 30
+plan_order = "new_first"
+adaptive_new_words = true
+delayed_recall = true
+mistake_drill = true
+enable_drills = true
 desired_retention = 0.90
 max_reviews_per_session = 80
 pause_new_when_due_over = 60
@@ -27,6 +32,22 @@ new_word_seconds = 70
 reading_target_min = 5
 reading_target_max = 10
 screen_verify_days = [1, 3, 7, 14, 30, 90]
+new_word_order = "smart"
+
+[relations]
+enabled = true
+wordnet_enabled = true
+rapidfuzz_enabled = true
+
+[relations.spelling]
+max_neighbors = 10
+similarity_threshold = 0.80
+
+[relations.learning]
+frequency_weight = 1.0
+relatedness_weight = 0.5
+interference_penalty = 0.8
+confusion_priority = 1.0
 
 [ai]
 enabled = false
@@ -62,7 +83,7 @@ pulse_on_correct = true
 combo = true
 startup_animation = true
 reduced_motion = false
-max_particles = 240
+max_particles = 120
 """
 
 
@@ -76,7 +97,13 @@ class GeneralSettings(_Base):
 
 
 class LearningSettings(_Base):
-    new_words_per_day: int = Field(default=10, ge=0, le=500)
+    new_word_order: Literal["smart", "frequency", "related", "alphabetical"] = "smart"
+    plan_order: Literal["new_first", "old_first", "interleaved"] = "new_first"
+    adaptive_new_words: bool = True
+    delayed_recall: bool = True
+    mistake_drill: bool = True
+    enable_drills: bool = True
+    new_words_per_day: int = Field(default=20, ge=0, le=500)
     daily_minutes: int = Field(default=30, ge=1, le=600)
     desired_retention: float = Field(default=0.90, ge=0.70, le=0.97)
     max_reviews_per_session: int = Field(default=80, ge=1, le=2000)
@@ -93,6 +120,26 @@ class LearningSettings(_Base):
     @classmethod
     def _round_retention(cls, value: float) -> float:
         return round(value, 4)
+
+
+class SpellingRelationSettings(_Base):
+    max_neighbors: int = Field(default=10, ge=1, le=50)
+    similarity_threshold: float = Field(default=0.80, ge=0.50, le=0.99)
+
+
+class RelationLearningSettings(_Base):
+    frequency_weight: float = Field(default=1.0, ge=0.0, le=5.0)
+    relatedness_weight: float = Field(default=0.5, ge=0.0, le=5.0)
+    interference_penalty: float = Field(default=0.8, ge=0.0, le=5.0)
+    confusion_priority: float = Field(default=1.0, ge=0.0, le=5.0)
+
+
+class RelationsSettings(_Base):
+    enabled: bool = True
+    wordnet_enabled: bool = True
+    rapidfuzz_enabled: bool = True
+    spelling: SpellingRelationSettings = Field(default_factory=SpellingRelationSettings)
+    learning: RelationLearningSettings = Field(default_factory=RelationLearningSettings)
 
 
 class AISettings(_Base):
@@ -132,12 +179,13 @@ class EffectsSettings(_Base):
     combo: bool = True
     startup_animation: bool = True
     reduced_motion: bool = False
-    max_particles: int = Field(default=240, ge=0, le=1000)
+    max_particles: int = Field(default=120, ge=0, le=1000)
 
 
 class Settings(_Base):
     general: GeneralSettings = Field(default_factory=GeneralSettings)
     learning: LearningSettings = Field(default_factory=LearningSettings)
+    relations: RelationsSettings = Field(default_factory=RelationsSettings)
     ai: AISettings = Field(default_factory=AISettings)
     audio: AudioSettings = Field(default_factory=AudioSettings)
     ui: UISettings = Field(default_factory=UISettings)
@@ -220,7 +268,7 @@ def write_default_config(path: str | Path, *, force: bool = False) -> Path:
 def save_settings(settings: Settings, path: str | Path) -> Path:
     target = Path(path).expanduser()
     data = settings.model_dump(
-        include={"general", "learning", "ai", "audio", "ui", "effects"},
+        include={"general", "learning", "relations", "ai", "audio", "ui", "effects"},
         exclude_none=True,
     )
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -235,6 +283,8 @@ def config_summary(settings: Settings) -> dict[str, object]:
         "data_dir": str(settings.data_dir),
         "desired_retention": settings.learning.desired_retention,
         "new_words_per_day": settings.learning.new_words_per_day,
+        "new_word_order": settings.learning.new_word_order,
+        "relations_enabled": settings.relations.enabled,
         "ai_provider": settings.ai.provider,
         "ai_model": settings.ai.model or "(not set)",
         "ai_enabled": settings.ai.enabled,

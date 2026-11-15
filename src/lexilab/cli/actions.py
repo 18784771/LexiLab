@@ -15,7 +15,6 @@ from lexilab.audio.tts import TTSUnavailable
 from lexilab.capabilities import ai_message, ai_usable, audio_ready
 from lexilab.config.settings import config_summary, save_settings, write_default_config
 from lexilab.context import AppContext
-from lexilab.learning.screening import ScreeningService
 from lexilab.paths import project_root
 from lexilab.storage.backup import backup_databases, restore_backup, verify_backup
 from lexilab.timeutil import local_time
@@ -78,6 +77,7 @@ def init_action(
     vocab_file: Path | None = None,
     ecdict_file: Path | None = None,
     force_vocab: bool = False,
+    with_relations: bool = False,
 ) -> int:
     console = ctx.console
     console.print(Text("LexiLab 初始化", style="bold cyan"))
@@ -132,6 +132,7 @@ def init_action(
             if source is not None:
                 try:
                     result = import_ecdict_file(source, ctx.vocab_repo)
+                    ctx.vocab_repo.refresh_word_metrics()
                     console.print(Text(f"ECDICT 导入完成: {result['entries']} 条", style="green"))
                 except Exception as exc:
                     console.print(Text(f"ECDICT 导入失败（不影响背单词）: {exc}", style="yellow"))
@@ -140,6 +141,23 @@ def init_action(
 
     if not ctx.repo.get_setting("active_book"):
         ctx.repo.set_setting("active_book", "cet6")
+    if with_relations and ctx.has_vocabulary():
+        console.print(Text("正在构建词汇关系（可离线学习；WordNet 缺失时自动降级）…", style="dim"))
+        try:
+            result = ctx.relations.build(progress=None)
+            console.print(
+                Text(
+                    f"词汇关系: {result.get('stats', {}).get('relations', 0)} 条，"
+                    f"用时 {result.get('elapsed', 0)} 秒",
+                    style="green",
+                )
+            )
+            for stage in ("wordnet", "spelling"):
+                error = result.get(stage, {}).get("error")
+                if error:
+                    console.print(Text(f"  {stage}: {error}", style="yellow"))
+        except Exception as exc:
+            console.print(Text(f"词汇关系构建失败（不影响基础学习）: {exc}", style="yellow"))
     console.print()
     console.print(Text("初始化完成。下一步:", style="bold"))
     console.print(Text("  lexi doctor"))
@@ -166,6 +184,7 @@ def doctor_action(ctx: AppContext) -> int:
     for key, label in (
         ("vocabulary", "词库"),
         ("fsrs", "FSRS"),
+        ("relations", "词汇关系（可选）"),
         ("ai", "AI（可选）"),
         ("tts", "语音合成（可选）"),
         ("player", "音频播放（可选）"),
@@ -217,7 +236,14 @@ def doctor_action(ctx: AppContext) -> int:
         }
     )
     metadata = {}
-    for key in ("cet6.sha256", "cet6.imported_at", "ecdict.sha256", "ecdict.imported_at"):
+    for key in (
+        "cet6.sha256",
+        "cet6.imported_at",
+        "ecdict.sha256",
+        "ecdict.imported_at",
+        "relations.built_at",
+        "relations.wordnet.version",
+    ):
         value = ctx.vocab_repo.get_metadata(key)
         if value:
             metadata[key] = value
@@ -269,7 +295,14 @@ def _execute_session(ctx: AppContext, session_id: str):
     return ctx.learning_session().run(session_id)
 
 
-def _run_session(ctx: AppContext, kind: str, *, minutes: int | None, new_count: int | None):
+def _run_session(
+    ctx: AppContext,
+    kind: str,
+    *,
+    minutes: int | None,
+    new_count: int | None,
+    order: str | None = None,
+):
     open_session = ctx.repo.get_open_session(kind=kind)
     if open_session:
         counts = ctx.repo.session_counts(open_session["id"])
@@ -291,7 +324,7 @@ def _run_session(ctx: AppContext, kind: str, *, minutes: int | None, new_count: 
                 return _execute_session(ctx, open_session["id"])
             ctx.repo.abandon_session(open_session["id"])
 
-    plan = ctx.planner.build(kind, minutes=minutes, new_count=new_count)
+    plan = ctx.planner.build(kind, minutes=minutes, new_count=new_count, order=order)
     if plan.is_empty:
         ctx.console.print(Text("当前没有需要学习的内容。", style="green"))
         for note in plan.notes:
@@ -308,15 +341,27 @@ def study_action(
     minutes: int | None = None,
     new_count: int | None = None,
     offer_training: bool = True,
+    order: str | None = None,
 ) -> int:
-    result = _run_session(ctx, "study", minutes=minutes, new_count=new_count)
-    if result is None or result.quit or not offer_training:
+    result = _run_session(ctx, "study", minutes=minutes, new_count=new_count, order=order)
+    if result is None or result.quit:
         return 0
-    try:
-        _offer_training(ctx)
-    except KeyboardInterrupt:
-        ctx.console.print(Text("已退出。", style="dim"))
+    choice = result.details.get("summary_choice")
+    if choice == "review":
+        _run_session(ctx, "review", minutes=minutes, new_count=0)
+    elif choice == "new":
+        _run_session(ctx, "learn", minutes=minutes, new_count=5)
+    elif choice == "drill":
+        _mistake_drill_action(ctx)
     return 0
+
+
+def _mistake_drill_action(ctx: AppContext) -> int:
+    words = ctx.repo.weak_words(5)
+    if not words:
+        ctx.console.print(Text("暂无未解决错词。", style="dim"))
+        return 0
+    return drill_action(ctx, "spelling", count=len(words), words=words)
 
 
 def review_action(ctx: AppContext, *, minutes: int | None = None) -> int:
@@ -324,62 +369,214 @@ def review_action(ctx: AppContext, *, minutes: int | None = None) -> int:
     return 0
 
 
-def learn_action(ctx: AppContext, *, count: int | None = None, minutes: int | None = None) -> int:
-    _run_session(ctx, "learn", minutes=minutes, new_count=count)
+def learn_action(
+    ctx: AppContext,
+    *,
+    count: int | None = None,
+    minutes: int | None = None,
+    order: str | None = None,
+) -> int:
+    _run_session(ctx, "learn", minutes=minutes, new_count=count, order=order)
     return 0
 
 
-def _offer_training(ctx: AppContext) -> None:
-    caps = ctx.capabilities
-    options: list[tuple[str, str]] = [("s", "拼写训练"), ("c", "语境填空")]
-    if audio_ready(caps):
-        options.extend([("v", "听音辨义"), ("d", "单词听写"), ("j", "句子听写")])
-    if ai_usable(caps):
-        options.extend([("r", "AI 阅读"), ("w", "AI 写作")])
-        if audio_ready(caps):
-            options.append(("l", "AI 听力"))
-        if ctx.repo.list_open_errors(1):
-            options.append(("m", "错误强化"))
-    line = "   ".join(f"[{key}] {label}" for key, label in options) + "   [Enter] 结束"
-    ctx.console.print()
-    ctx.console.print(Text(line, style="dim"))
-    key = ctx.io.read_char()
-    try:
-        if key == "s":
-            drill_action(ctx, "spelling", count=8)
-        elif key == "c":
-            drill_action(ctx, "context", count=6)
-        elif key == "v":
-            audio_drill_action(ctx, "listening", count=8)
-        elif key == "d":
-            audio_drill_action(ctx, "dictation", count=8)
-        elif key == "j":
-            audio_drill_action(ctx, "sentence", count=5)
-        elif key == "r":
-            read_action(ctx)
-        elif key == "w":
-            write_action(ctx)
-        elif key == "l":
-            listen_action(ctx)
-        elif key == "m":
-            ai_reinforcement_action(ctx)
-    except (AIError, TTSUnavailable) as exc:
-        ctx.console.print(Text(str(exc), style="yellow"))
+# --------------------------------------------------------------- relations
+def _relation_table(title: str, views: list) -> Table:
+    table = Table(title=title, show_lines=False)
+    table.add_column("关系", style="cyan", no_wrap=True)
+    table.add_column("单词", style="bold")
+    table.add_column("释义", overflow="fold")
+    table.add_column("依据", style="dim", overflow="fold")
+    for view in views:
+        evidence = view.source or ""
+        if view.source_sense:
+            evidence = f"{evidence} {view.source_sense}"
+            if view.target_sense:
+                evidence += f" → {view.target_sense}"
+        table.add_row(view.label, view.headword, view.meaning, evidence.strip())
+    return table
 
 
-# ------------------------------------------------------------------ screen
-def screen_action(ctx: AppContext, *, limit: int = 50) -> int:
-    service = ScreeningService(
-        ctx.settings,
-        ctx.repo,
-        ctx.vocab_repo,
-        ctx.vocab,
-        ctx.memory,
-        ctx.audio,
-        ctx.console,
-        ctx.io,
+def related_action(
+    ctx: AppContext,
+    word: str,
+    *,
+    relation_type: str | None = None,
+    limit: int = 30,
+) -> int:
+    key = normalize_word(word)
+    if not key:
+        ctx.console.print(Text("单词为空。", style="yellow"))
+        return 1
+    entry = ctx.vocab.display_entry(ctx.vocab.lookup(key))
+    if entry is None:
+        ctx.console.print(Text(f"词库中未找到: {word}", style="yellow"))
+        return 1
+    if not ctx.relations.enabled:
+        ctx.console.print(Text("词汇关系引擎已在配置中关闭。", style="yellow"))
+        return 1
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_relations import run_textual_relations
+
+        selected = run_textual_relations(
+            ctx, entry.word_key, relation_type=relation_type, limit=limit
+        )
+        if selected:
+            drill_action(ctx, "spelling", count=1, words=[selected])
+        return 0
+    groups = ctx.relations.groups(key, limit=limit)
+    ctx.console.print(
+        Text(
+            f"{entry.headword}  /{entry.phonetic.strip('/')}/  {entry.meaning_with_pos()}",
+            style="bold cyan",
+        )
     )
-    service.run(limit)
+    if relation_type:
+        views = groups.get(relation_type, [])
+        ctx.console.print(_relation_table(f"{entry.headword} · {relation_type}", views))
+        if not views:
+            ctx.console.print(Text("没有该类关系数据。", style="dim"))
+        return 0
+    total = 0
+    for kind in (
+        "synonym",
+        "antonym",
+        "derivation",
+        "hypernym",
+        "hyponym",
+        "similar",
+        "related",
+        "orthographic_similar",
+        "user_confusion",
+    ):
+        views = groups.get(kind, [])
+        if views:
+            total += len(views)
+            ctx.console.print(_relation_table(f"{entry.headword} · {views[0].label}", views))
+    if not total:
+        ctx.console.print(
+            Text(
+                "暂无关系数据。请先运行 lexi relations build；"
+                "关系库缺失时学习仍会使用词频排序。",
+                style="yellow",
+            )
+        )
+    return 0
+
+
+def relations_build_action(
+    ctx: AppContext,
+    *,
+    force: bool = False,
+    wordnet: bool = True,
+    spelling: bool = True,
+    download: bool = False,
+) -> int:
+    if download:
+        try:
+            ok = ctx.relations.download_wordnet()
+        except Exception as exc:
+            ctx.console.print(Text(f"WordNet 下载失败: {exc}", style="red"))
+            return 1
+        if not ok:
+            ctx.console.print(Text("WordNet 下载未完成。", style="yellow"))
+            return 1
+        ctx.console.print(Text("WordNet 数据已就绪。", style="green"))
+    def progress(stage: str, done: int, total: int) -> None:
+        if total:
+            ctx.console.print(Text(f"关系构建 {stage}: {done}/{total}", style="dim"), end="\r")
+
+    result = ctx.relations.build(
+        force=force,
+        wordnet=wordnet,
+        spelling=spelling,
+        progress=progress,
+    )
+    ctx.console.print()
+    ctx.console.print(
+        Text(
+            f"词汇关系构建完成：{result.get('words', 0)} 个源词，"
+            f"{result.get('stats', {}).get('relations', 0)} 条关系，"
+            f"{result.get('elapsed', 0)} 秒",
+            style="bold green",
+        )
+    )
+    for stage in ("wordnet", "spelling"):
+        info = result.get(stage, {})
+        if info.get("error"):
+            ctx.console.print(Text(f"  {stage}: {info['error']}", style="yellow"))
+        else:
+            ctx.console.print(
+                Text(
+                    f"  {stage}: 处理 {info.get('built', 0)} 个词，新增 {info.get('relations', 0)} 条",
+                    style="dim",
+                )
+            )
+    return 0
+
+
+def relations_menu_action(ctx: AppContext) -> int:
+    if not ctx.io.interactive:
+        ctx.console.print(Text("请使用: lexi related <word>", style="dim"))
+        return 1
+    ctx.console.print(Text("[Enter] 查看关系   [1] 近义词辨析   [2] 形近词辨析   [3] 易混淆词", style="dim"))
+    key = ctx.io.read_char()
+    if key == "1":
+        return relation_drill_action(ctx, "synonym", count=8)
+    if key == "2":
+        return relation_drill_action(ctx, "similar-spelling", count=8)
+    if key == "3":
+        return relation_drill_action(ctx, "confusion", count=8)
+    word = ctx.io.read_line("单词: ")
+    if not word:
+        return 0
+    return related_action(ctx, word.strip())
+
+
+def relations_stats_action(ctx: AppContext) -> int:
+    stats = ctx.relations.stats()
+    table = Table(title="LexiLab 词汇关系库")
+    table.add_column("指标")
+    table.add_column("值", overflow="fold")
+    table.add_row("关系总数", str(stats.get("relations", 0)))
+    table.add_row("源词数", str(stats.get("source_words", 0)))
+    table.add_row("目标词数", str(stats.get("target_words", 0)))
+    table.add_row("个人混淆对", str(stats.get("user_confusions", 0)))
+    table.add_row("构建时间", str(stats.get("built_at") or "未构建"))
+    table.add_row("WordNet 版本", str(stats.get("wordnet_version") or "未构建"))
+    for source, count in sorted(stats.get("by_source", {}).items()):
+        table.add_row(f"来源 {source}", str(count))
+    for kind, count in sorted(stats.get("by_type", {}).items()):
+        table.add_row(f"类型 {kind}", str(count))
+    ctx.console.print(table)
+    return 0
+
+
+def relation_drill_action(ctx: AppContext, mode: str, *, count: int = 10) -> int:
+    pairs = ctx.relations.drill_pairs(mode, count=count)
+    if not pairs:
+        ctx.console.print(
+            Text(
+                "没有可用于辨析的关系/混淆记录。先运行 lexi relations build，"
+                "或在实际作答中产生一次真实词形混淆。",
+                style="yellow",
+            )
+        )
+        return 1
+    kinds = {
+        "synonym": "synonym",
+        "similar-spelling": "similar_spelling",
+        "confusion": "confusion",
+    }
+    words = [pair[0] for pair in pairs]
+    contrasts = {pair[0]: pair[1] for pair in pairs}
+    drill_action(
+        ctx,
+        kinds.get(mode, "recall"),
+        count=len(words),
+        words=words,
+        contrasts=contrasts,
+    )
     return 0
 
 
@@ -499,6 +696,7 @@ def import_action(
     if kind == "ecdict":
         try:
             result = import_ecdict_file(source, ctx.vocab_repo)
+            ctx.vocab_repo.refresh_word_metrics()
         except Exception as exc:
             ctx.console.print(Text(f"ECDICT 导入失败: {exc}", style="red"))
             return 1
@@ -522,16 +720,31 @@ def import_action(
 
 
 # ------------------------------------------------------------------- drills
-def drill_action(ctx: AppContext, kind: str, *, count: int = 10, words: list[str] | None = None) -> int:
-    if _textual_enabled(ctx) and kind in {"spelling", "recall"} and words is None:
+def drill_action(
+    ctx: AppContext,
+    kind: str,
+    *,
+    count: int = 10,
+    words: list[str] | None = None,
+    contrasts: dict[str, str] | None = None,
+) -> int:
+    if _textual_enabled(ctx) and kind in {
+        "spelling",
+        "recall",
+        "synonym",
+        "similar_spelling",
+        "confusion",
+    }:
         from lexilab.ui.textual_drill import run_textual_drill
 
-        result = run_textual_drill(ctx, kind, count)
+        result = run_textual_drill(
+            ctx, kind, count, words=words, contrasts=contrasts
+        )
         return 0 if result is not None else 1
     session = DrillSession(
         ctx.materials, ctx.repo, ctx.vocab, ctx.audio, ctx.console, ctx.io
     )
-    session.run(kind, count=count, words=words)
+    session.run(kind, count=count, words=words, contrasts=contrasts)
     return 0
 
 
@@ -1198,55 +1411,331 @@ def vocab_words_action(ctx: AppContext, *, limit: int = 30, search: str = "") ->
 
 # ---------------------------------------------------------------- main menu
 def _textual_options(ctx: AppContext) -> list[tuple[str, str]]:
-    caps = ctx.capabilities
-    options: list[tuple[str, str]] = [
+    # Main menu is intentionally limited to the daily loop. All management
+    # functions live under Settings.
+    return [
         ("study", "开始今日学习"),
-        ("review", "单词复习"),
-        ("learn", "新词学习"),
+        ("settings", "设置"),
+        ("q", "退出"),
     ]
-    if audio_ready(caps):
-        options.append(("audio", "听音辨义 / 听写"))
-    if ai_usable(caps):
-        options.extend([("read", "AI 阅读"), ("write", "AI 写作")])
-    options.extend(
-        [
-            ("stats", "学习统计"),
-            ("vocab", "词库管理"),
-            ("screen", "快速筛选"),
-        ]
-    )
-    if caps["cached_materials"].ready:
-        options.append(("materials", "本地材料"))
-    options.extend([("config", "配置"), ("q", "退出")])
-    return options
+
+
+def _menu_summary(ctx: AppContext) -> dict:
+    summary = ctx.analytics.summary()
+    summary["new_target"] = ctx.settings.learning.new_words_per_day
+    summary["review_target"] = max(int(summary.get("today_reviews", 0)), int(summary.get("due_count", 0)))
+    return summary
 
 
 def _dispatch_menu_key(ctx: AppContext, key: str) -> bool:
-    if key in {"study", "enter"}:
+    if key in {"study", "enter", "1"}:
         study_action(ctx)
-    elif key in {"review", "1"}:
-        review_action(ctx)
-    elif key in {"learn", "2"}:
-        learn_action(ctx)
-    elif key in {"audio", "3"}:
-        audio_drill_action(ctx, "listening")
-    elif key in {"read", "4"}:
-        read_action(ctx)
-    elif key in {"write", "5"}:
-        write_action(ctx)
-    elif key in {"stats", "6"}:
-        stats_action(ctx)
-    elif key in {"vocab", "7"}:
-        vocab_list_action(ctx)
-    elif key in {"screen", "8"}:
-        screen_action(ctx)
-    elif key in {"materials", "9"}:
-        materials_action(ctx)
-    elif key in {"config", "c"}:
-        config_action(ctx)
-    elif key in {"q", "eof", "esc"}:
+    elif key in {"settings", "2", "s"}:
+        settings_menu_action(ctx)
+    elif key in {"q", "eof", "esc", "3"}:
         return False
     return True
+
+
+def _settings_options(ctx: AppContext) -> list[tuple[str, str]]:
+    return [
+        ("plan", "学习计划"),
+        ("stats", "学习统计"),
+        ("vocab", "词库管理"),
+        ("drill", "专项训练"),
+        ("ai", "AI 配置"),
+        ("audio", "语音配置"),
+        ("ui", "界面与特效"),
+        ("backup", "数据备份与恢复"),
+        ("back", "返回"),
+    ]
+
+
+def settings_menu_action(ctx: AppContext) -> int:
+    if not ctx.io.interactive:
+        ctx.console.print(Text("非交互环境请使用 lexi --help 查看具体命令。", style="dim"))
+        return 0
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_app import run_textual_menu
+
+        while True:
+            key = run_textual_menu(ctx, _settings_options(ctx))
+            if not key or key in {"back", "q", "esc"}:
+                return 0
+            try:
+                if not _dispatch_settings_key(ctx, key):
+                    return 0
+            except (AIError, TTSUnavailable) as exc:
+                ctx.console.print(Text(str(exc), style="yellow"))
+    while True:
+        _render_settings_menu(ctx)
+        ctx.console.print(Text("选择操作: ", style="dim"), end="")
+        key = ctx.io.read_char()
+        ctx.console.print()
+        if key in {"q", "esc", "eof"} or not _dispatch_settings_key(ctx, key):
+            return 0
+
+
+def _render_settings_menu(ctx: AppContext) -> None:
+    ctx.console.print()
+    ctx.console.print(Text("设置", style="bold cyan"))
+    for index, (_, label) in enumerate(_settings_options(ctx), 1):
+        ctx.console.print(Text(f"  {index}. {label}"))
+    ctx.console.print(Text("  Enter/数字选择   Esc 返回", style="dim"))
+
+
+def _dispatch_settings_key(ctx: AppContext, key: str) -> bool:
+    if key in {"plan", "1"}:
+        learning_plan_action(ctx)
+    elif key in {"stats", "2"}:
+        stats_action(ctx)
+    elif key in {"vocab", "3"}:
+        vocab_manage_action(ctx)
+    elif key in {"drill", "4"}:
+        drill_menu_action(ctx)
+    elif key in {"ai", "5"}:
+        config_ai_action(ctx)
+    elif key in {"audio", "6"}:
+        config_audio_action(ctx)
+    elif key in {"ui", "7"}:
+        interface_action(ctx)
+    elif key in {"backup", "8"}:
+        backup_menu_action(ctx)
+    elif key in {"back", "9", "q", "esc", "eof"}:
+        return False
+    return True
+
+
+def _ask_int(ctx: AppContext, prompt: str, current: int, low: int, high: int) -> int:
+    answer = ctx.io.read_line(f"{prompt}（当前 {current}）: ")
+    if answer is None or not answer.strip():
+        return current
+    try:
+        value = int(answer.strip())
+    except ValueError:
+        ctx.console.print(Text("请输入整数，保留原值。", style="yellow"))
+        return current
+    if not (low <= value <= high):
+        ctx.console.print(Text(f"范围应为 {low}-{high}，保留原值。", style="yellow"))
+        return current
+    return value
+
+
+def _ask_bool(ctx: AppContext, prompt: str, current: bool) -> bool:
+    answer = ctx.io.read_line(f"{prompt} [{'Y/n' if current else 'y/N'}]: ")
+    if answer is None or not answer.strip():
+        return current
+    return answer.strip().lower().startswith("y")
+
+
+def _save_current_settings(ctx: AppContext) -> Path:
+    target = _config_target(ctx, None)
+    save_settings(ctx.settings, target)
+    return target
+
+
+def learning_plan_action(ctx: AppContext) -> int:
+    cfg = ctx.settings.learning
+    if not ctx.io.interactive:
+        ctx.console.print(
+            Text(
+                f"每日新词 {cfg.new_words_per_day}，时间 {cfg.daily_minutes} 分钟，顺序 {cfg.plan_order}",
+                style="dim",
+            )
+        )
+        return 0
+    ctx.console.print(Text("学习计划", style="bold cyan"))
+    cfg.new_words_per_day = _ask_int(ctx, "每日新词目标", cfg.new_words_per_day, 0, 500)
+    cfg.daily_minutes = _ask_int(ctx, "每日学习时间（分钟）", cfg.daily_minutes, 1, 600)
+    order = ctx.io.read_line(
+        f"新词/旧词顺序 1=先新词 2=先旧词 3=交替（当前 {cfg.plan_order}）: "
+    )
+    mapping = {"1": "new_first", "2": "old_first", "3": "interleaved"}
+    if order and order.strip() in mapping:
+        cfg.plan_order = mapping[order.strip()]
+    word_order = ctx.io.read_line(
+        "新词排序 1=smart 2=frequency 3=related 4=alphabetical"
+        f"（当前 {cfg.new_word_order}）: "
+    )
+    word_mapping = {
+        "1": "smart",
+        "2": "frequency",
+        "3": "related",
+        "4": "alphabetical",
+    }
+    if word_order and word_order.strip() in word_mapping:
+        cfg.new_word_order = word_mapping[word_order.strip()]
+    cfg.adaptive_new_words = _ask_bool(ctx, "到期积压时自动减少新词？", cfg.adaptive_new_words)
+    cfg.delayed_recall = _ask_bool(ctx, "启用新词延迟主动回忆？", cfg.delayed_recall)
+    cfg.mistake_drill = _ask_bool(ctx, "启用错词强化？", cfg.mistake_drill)
+    cfg.enable_drills = _ask_bool(ctx, "启用专项训练入口？", cfg.enable_drills)
+    target = _save_current_settings(ctx)
+    ctx.console.print(Text(f"已保存: {target}", style="green"))
+    return 0
+
+
+def _run_settings_submenu(
+    ctx: AppContext,
+    title: str,
+    options: list[tuple[str, str]],
+    dispatch,
+) -> None:
+    if _textual_enabled(ctx):
+        from lexilab.ui.textual_app import run_textual_menu
+
+        while True:
+            key = run_textual_menu(ctx, options)
+            if not key or key in {"back", "q", "esc"}:
+                return
+            if dispatch(key) is False:
+                return
+        return
+    while True:
+        ctx.console.print()
+        ctx.console.print(Text(title, style="bold cyan"))
+        for index, (_, label) in enumerate(options, 1):
+            ctx.console.print(Text(f"  {index}. {label}"))
+        ctx.console.print(Text("  Enter/数字选择   Esc 返回", style="dim"))
+        key = ctx.io.read_char()
+        if key in {"q", "esc", "eof"}:
+            return
+        if dispatch(key) is False:
+            return
+
+
+def vocab_manage_action(ctx: AppContext) -> int:
+    options = [
+        ("list", "词库列表"),
+        ("use", "切换词库"),
+        ("show", "查看单词"),
+        ("add", "添加个人生词"),
+        ("pause", "暂停单词"),
+        ("resume", "恢复单词"),
+        ("history", "单词历史"),
+        ("related", "词汇关联查询"),
+        ("import", "导入自定义词库"),
+        ("back", "返回"),
+    ]
+
+    def dispatch(key: str):
+        if key in {"back", "q", "esc", "10"}:
+            return False
+        if key in {"list", "1"}:
+            vocab_list_action(ctx)
+        elif key in {"use", "2"}:
+            code = ctx.io.read_line("词库代码: ")
+            if code:
+                vocab_use_action(ctx, code.strip())
+        elif key in {"show", "3"}:
+            word = ctx.io.read_line("单词: ")
+            if word:
+                vocab_show_action(ctx, word.strip())
+        elif key in {"add", "4"}:
+            word = ctx.io.read_line("要添加的单词: ")
+            if word:
+                add_action(ctx, word.strip())
+        elif key in {"pause", "5"}:
+            word = ctx.io.read_line("暂停的单词: ")
+            if word:
+                vocab_pause_action(ctx, word.strip())
+        elif key in {"resume", "6"}:
+            word = ctx.io.read_line("恢复的单词: ")
+            if word:
+                vocab_resume_action(ctx, word.strip())
+        elif key in {"history", "7"}:
+            word = ctx.io.read_line("单词: ")
+            if word:
+                vocab_history_action(ctx, word.strip())
+        elif key in {"related", "8"}:
+            word = ctx.io.read_line("单词: ")
+            if word:
+                related_action(ctx, word.strip())
+        elif key in {"import", "9"}:
+            path = ctx.io.read_line("文件路径: ")
+            if path:
+                import_action(ctx, Path(path.strip()))
+        return True
+
+    _run_settings_submenu(ctx, "词库管理", options, dispatch)
+    return 0
+
+
+def drill_menu_action(ctx: AppContext) -> int:
+    options = [
+        ("spelling", "拼写训练"),
+        ("recall", "中译英主动提取"),
+        ("context", "语境填空"),
+        ("synonyms", "近义词辨析"),
+        ("similar-spelling", "形近词辨析"),
+        ("confusion", "个人易混淆词"),
+        ("listening", "听音辨义"),
+        ("dictation", "单词听写"),
+        ("sentence", "句子听写"),
+        ("back", "返回"),
+    ]
+
+    def dispatch(key: str):
+        if key in {"back", "q", "esc", "10"}:
+            return False
+        if key in {"spelling", "1"}:
+            drill_action(ctx, "spelling", count=8)
+        elif key in {"recall", "2"}:
+            drill_action(ctx, "recall", count=8)
+        elif key in {"context", "3"}:
+            drill_action(ctx, "context", count=6)
+        elif key in {"synonyms", "4"}:
+            relation_drill_action(ctx, "synonym", count=8)
+        elif key in {"similar-spelling", "5"}:
+            relation_drill_action(ctx, "similar-spelling", count=8)
+        elif key in {"confusion", "6"}:
+            relation_drill_action(ctx, "confusion", count=8)
+        elif key in {"listening", "7"}:
+            audio_drill_action(ctx, "listening", count=8)
+        elif key in {"dictation", "8"}:
+            audio_drill_action(ctx, "dictation", count=8)
+        elif key in {"sentence", "9"}:
+            audio_drill_action(ctx, "sentence", count=5)
+        return True
+
+    _run_settings_submenu(ctx, "专项训练", options, dispatch)
+    return 0
+
+
+def interface_action(ctx: AppContext) -> int:
+    cfg = ctx.settings
+    if not ctx.io.interactive:
+        return 0
+    cfg.effects.enabled = _ask_bool(ctx, "启用界面特效？", cfg.effects.enabled)
+    cfg.effects.reduced_motion = _ask_bool(ctx, "减少动态效果？", cfg.effects.reduced_motion)
+    cfg.ui.textual = _ask_bool(ctx, "使用 Textual 全键盘界面？", cfg.ui.textual)
+    target = _save_current_settings(ctx)
+    ctx.console.print(Text(f"已保存: {target}", style="green"))
+    return 0
+
+
+def backup_menu_action(ctx: AppContext) -> int:
+    options = [
+        ("backup", "立即备份"),
+        ("restore", "恢复备份"),
+        ("materials", "查看本地材料"),
+        ("back", "返回"),
+    ]
+
+    def dispatch(key: str):
+        if key in {"back", "q", "esc", "4"}:
+            return False
+        if key in {"backup", "1"}:
+            backup_action(ctx)
+        elif key in {"restore", "2"}:
+            path = ctx.io.read_line("备份目录或 .db 路径: ")
+            if path:
+                restore_action(ctx, Path(path.strip()), yes=False)
+        elif key in {"materials", "3"}:
+            materials_action(ctx)
+        return True
+
+    _run_settings_submenu(ctx, "数据备份与恢复", options, dispatch)
+    return 0
 
 
 def main_menu_action(ctx: AppContext) -> int:
@@ -1254,8 +1743,7 @@ def main_menu_action(ctx: AppContext) -> int:
         ctx.console.print(Text("尚未初始化词库。请先运行: lexi init", style="yellow"))
         return 1
     if not ctx.io.interactive:
-        summary = ctx.analytics.summary()
-        render_main_menu(ctx.console, summary, ctx.capabilities)
+        render_main_menu(ctx.console, _menu_summary(ctx), ctx.capabilities)
         ctx.console.print(Text("非交互环境：请使用 lexi --help 查看命令。", style="dim"))
         return 0
     if _textual_enabled(ctx):
@@ -1275,9 +1763,8 @@ def main_menu_action(ctx: AppContext) -> int:
                 break
         return 0
     while True:
-        summary = ctx.analytics.summary()
         ctx.console.print()
-        render_main_menu(ctx.console, summary, ctx.capabilities)
+        render_main_menu(ctx.console, _menu_summary(ctx), ctx.capabilities)
         ctx.console.print()
         ctx.console.print(Text("选择操作: ", style="dim"), end="")
         key = ctx.io.read_char()

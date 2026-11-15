@@ -14,6 +14,7 @@ class RatingResult:
     duration_ms: int = 0
     skipped: bool = False
     quit: bool = False
+    revealed: bool = False
 
 
 @dataclass
@@ -43,7 +44,10 @@ class SessionUI(Protocol):
         ...
 
     def ask_new_word(self, entry: WordEntry, position: str) -> int:
-        """Return 1 know, 2 unsure, 3 unknown, 0 quit."""
+        """Legacy self-report: 1 know, 2 unsure, 3 unknown, 0 quit."""
+
+    def ask_new_word_direction(self, entry: WordEntry, position: str) -> RatingResult:
+        """Direction-key first judgment for a brand-new word."""
 
     def show_word_info(self, entry: WordEntry) -> bool:
         """Show the compact learning card. Return False to quit."""
@@ -62,5 +66,5 @@ class SessionUI(Protocol):
     def ask_reinforcement(self, entry: WordEntry, position: str) -> bool | None:
         """Short-term re-check without a new FSRS review. None means quit."""
 
-    def show_summary(self, summary: dict) -> None:
-        ...
+    def show_summary(self, summary: dict) -> str | None:
+        """Show summary; return 'review', 'new', 'drill', or None."""

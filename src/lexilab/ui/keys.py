@@ -42,6 +42,8 @@ class KeyReader:
         lowered = value.lower()
         if lowered in {"enter", "return"}:
             return "enter"
+        if lowered in {"left", "right", "up", "down"}:
+            return lowered
         if len(value) == 1:
             return lowered
         return "line"
@@ -51,8 +53,13 @@ class KeyReader:
 
         char = msvcrt.getwch()
         if char in {"\x00", "\xe0"}:
-            msvcrt.getwch()
-            return "special"
+            code = msvcrt.getwch()
+            return {
+                "H": "up",
+                "P": "down",
+                "M": "right",
+                "K": "left",
+            }.get(code, "special")
         return self._normalize(char)
 
     def _read_posix(self) -> str:
@@ -69,9 +76,15 @@ class KeyReader:
                 if ready:
                     extra = self.stream.read(1)
                     if extra in {"[", "O"}:
+                        code = ""
                         if select.select([fd], [], [], 0.03)[0]:
-                            self.stream.read(1)
-                        return "special"
+                            code = self.stream.read(1)
+                        return {
+                            "A": "up",
+                            "B": "down",
+                            "C": "right",
+                            "D": "left",
+                        }.get(code, "special")
                 return "esc"
             return self._normalize(char)
         except (OSError, ValueError):

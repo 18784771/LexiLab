@@ -44,7 +44,14 @@ class DrillSession:
             words.extend(self.materials.select_target_words(count, exclude=set(words)))
         return words[:count]
 
-    def run(self, kind: str, count: int = 10, words: list[str] | None = None) -> dict:
+    def run(
+        self,
+        kind: str,
+        count: int = 10,
+        words: list[str] | None = None,
+        contrasts: dict[str, str] | None = None,
+    ) -> dict:
+        contrasts = contrasts or {}
         if kind == "context":
             targets = (words or self.materials.select_target_words(min(count, 8)))[:count]
             items = self.materials.get_cloze(targets)
@@ -66,15 +73,36 @@ class DrillSession:
             if entry is None:
                 continue
             self.console.print()
-            title = {"spelling": "SPELLING", "recall": "RECALL DRILL", "context": "CONTEXT"}.get(kind, "DRILL")
+            title = {
+                "spelling": "SPELLING",
+                "recall": "RECALL DRILL",
+                "context": "CONTEXT",
+                "synonym": "SYNONYM CONTRAST",
+                "similar_spelling": "SPELLING CONTRAST",
+                "confusion": "CONFUSION DRILL",
+            }.get(kind, "DRILL")
             self.console.print(Text(f"{title}   {index}/{len(items)}", style="bold"))
+            contrast = contrasts.get(word)
+            contrast_entry = (
+                self.vocab.display_entry(self.vocab.lookup(contrast)) if contrast else None
+            )
             if kind == "context":
                 self.console.print(Text(item["sentence"], style="bold"))
                 if item.get("translation"):
                     self.console.print(Text(item["translation"], style="dim"))
             else:
                 self.console.print(Text(entry.meaning_with_pos(), style="bold"))
-                if kind == "spelling" and audio_ok:
+                if contrast:
+                    prefix = {
+                        "synonym": "近义词辨析",
+                        "similar_spelling": "形近词辨析",
+                        "confusion": "历史混淆",
+                    }.get(kind, "对比词")
+                    line = f"{prefix}：与 {contrast}"
+                    if contrast_entry:
+                        line += f"（{contrast_entry.short_meaning}）"
+                    self.console.print(Text(line, style="yellow"))
+                if kind in {"spelling", "similar_spelling", "confusion"} and audio_ok:
                     self.console.print(Text("[p] 播放发音", style="dim"))
             self.console.print(Text("[Enter] 作答   [s] 跳过   [q] 退出", style="dim"))
             hinted = False
@@ -114,6 +142,13 @@ class DrillSession:
                     self.console.print(Text("参考答案: ", style="dim") + Text(entry.headword, style="bold"))
                     if judge.message:
                         self.console.print(Text(judge.message, style="yellow"))
+                    if contrast and not judge.correct and contrast_entry:
+                        self.console.print(
+                            Text(
+                                f"对比：{contrast} = {contrast_entry.short_meaning}",
+                                style="dim",
+                            )
+                        )
                     self.repo.add_training_log(
                         word,
                         kind,
@@ -121,12 +156,19 @@ class DrillSession:
                         hinted=hinted,
                         duration_ms=duration_ms,
                         error_type=judge.error_type,
-                        detail={"answer": answer, "expected": entry.headword},
+                        detail={
+                            "answer": answer,
+                            "expected": entry.headword,
+                            "contrast": contrast or "",
+                        },
                     )
                     if not judge.correct:
                         self.repo.add_word_error(
                             word, kind, judge.error_type or "wrong_answer", judge.message
                         )
+                        found = self.vocab.lookup(answer)
+                        if found.found_in != "none" and found.word_key != entry.word_key:
+                            self.repo.record_confusion(entry.word_key, found.word_key, skill=kind)
                     elif kind in {"spelling", "recall"}:
                         self.repo.resolve_errors(word, kind)
                     self.io.pause("按 Enter 继续")

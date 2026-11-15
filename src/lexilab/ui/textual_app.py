@@ -150,6 +150,9 @@ class TextualSessionUI(SessionUI):
     def ask_new_word(self, entry: WordEntry, position: str) -> int:
         return self._ask(self.app.present_new_word, 0, entry, position)
 
+    def ask_new_word_direction(self, entry: WordEntry, position: str) -> RatingResult:
+        return self._ask(self.app.present_recognition, RatingResult(quit=True), entry, position, "intro")
+
     def show_word_info(self, entry: WordEntry) -> bool:
         return bool(self._ask(self.app.present_word_info, False, entry))
 
@@ -167,8 +170,8 @@ class TextualSessionUI(SessionUI):
     def ask_reinforcement(self, entry: WordEntry, position: str) -> bool | None:
         return self._ask(self.app.present_reinforcement, None, entry, position)
 
-    def show_summary(self, summary: dict) -> None:
-        self._ask(self.app.present_summary, None, summary)
+    def show_summary(self, summary: dict) -> str | None:
+        return self._ask(self.app.present_summary, None, summary)
 
 
 class LexiLabSessionApp(App):
@@ -323,29 +326,48 @@ class LexiLabSessionApp(App):
         self, entry: WordEntry, position: str, mode: str, callback: Callable
     ) -> None:
         self._mode = f"recognition:{mode}"
-        self._stage = "front"
+        self._stage = "question"
         self._entry = entry
         self._position = position
         self._callback = callback
         self._hinted = False
+        self._accepting_rating = True
         self._started = self._monotonic()
         self._clear_screen()
-        self._set_header("VERIFY" if mode == "verify" else ("NEW RECALL" if mode == "new" else "REVIEW"))
+        label = {
+            "intro": "NEW",
+            "new": "NEW RECALL",
+            "verify": "VERIFY",
+        }.get(mode, "REVIEW")
+        self._set_header(label)
         self.word.update(Text(entry.headword, style="bold cyan"))
         self.meta.update(Text(entry.phonetic, style="dim"))
-        self.prompt.update(Text("请回忆这个单词的含义\n[Space/Enter] 翻面", justify="center"))
+        self.prompt.update(
+            Text(
+                "↑\n不太确定\n\n←                  →\n不记得              容易",
+                justify="center",
+            )
+        )
         self.footer.update(
-            Text("[Space/Enter] 翻面   [S] 跳过   [F2] 发音   [Ctrl+Q] 退出", style="dim")
+            Text(
+                "[←] 不记得   [↑] 核对   [→] 容易   [P] 发音   [E] 详情   [Esc] 返回",
+                style="dim",
+            )
         )
         self.effects.emit(EffectEvent.CARD_CHANGED, word=entry.headword)
 
-    def _reveal_recognition(self) -> None:
+    def _show_answer_for_direction(self, *, check: bool) -> None:
         entry = self._entry
         if entry is None:
             return
-        self._stage = "back"
-        self.prompt.update(Text(""))
-        self.meta.update(Text(f"/{entry.phonetic.strip('/')}/", style="dim"))
+        self._stage = "check" if check else "answer"
+        self.prompt.update(
+            Text(
+                "↑ 先核对答案：← 实际没想起来   → 想起来了，但困难" if check else "",
+                justify="center",
+            )
+        )
+        self.meta.update(Text(f"/{entry.phonetic.strip('/')}/  {entry.meaning_with_pos()}", style="dim"))
         lines = [Text(entry.meaning_with_pos(), style="bold")]
         if entry.phrases:
             lines.append(Text(f"{entry.phrases[0].phrase}  {entry.phrases[0].translation}", style="italic"))
@@ -354,8 +376,46 @@ class LexiLabSessionApp(App):
             if entry.examples[0].sentence_cn:
                 lines.append(Text(entry.examples[0].sentence_cn, style="dim"))
         self.feedback.update(Text("\n").join(lines))
-        self.footer.update(
-            Text("[1] 忘记  [2] 困难  [3] 正常  [4] 简单   [S] 跳过   [Ctrl+Q] 退出", style="dim")
+        if check:
+            self.footer.update(
+                Text("[←] 实际没想起来（Again）   [→] 想起来了但困难（Hard）", style="dim")
+            )
+        else:
+            self.footer.update(Text("[Enter] 下一词", style="dim"))
+
+    def _show_direction_details(self) -> None:
+        entry = self._entry
+        if entry is None:
+            return
+        self._hinted = True
+        self._stage = "details"
+        lines = [Text(entry.meaning_with_pos(), style="bold")]
+        for definition in entry.definitions[:5]:
+            lines.append(Text(f"{definition.pos}. {definition.meaning_cn}" if definition.pos else definition.meaning_cn))
+        if entry.phrases:
+            lines.append(Text(f"{entry.phrases[0].phrase}  {entry.phrases[0].translation}", style="italic"))
+        if entry.examples:
+            lines.append(Text(entry.examples[0].sentence_en, style="italic"))
+        self.feedback.update(Text("\n").join(lines))
+        self.footer.update(Text("[Enter] 返回   [←/→/↑] 评分", style="dim"))
+
+    def _finish_direction(self, rating: int, *, revealed: bool = False) -> None:
+        if not getattr(self, "_accepting_rating", False):
+            return
+        self._accepting_rating = False
+        if rating == 4:
+            self.effects.emit(EffectEvent.ANSWER_CORRECT, hinted=self._hinted)
+        elif rating == 1:
+            self.effects.emit(EffectEvent.ANSWER_INCORRECT, hinted=self._hinted)
+        else:
+            self._pulse("yellow")
+        self._finish(
+            RatingResult(
+                rating=rating,
+                hinted=self._hinted,
+                revealed=revealed,
+                duration_ms=int((self._monotonic() - self._started) * 1000),
+            )
         )
 
     def present_production(
@@ -456,7 +516,12 @@ class LexiLabSessionApp(App):
         if summary.get("pending"):
             lines.append(Text(f"未完成: {summary['pending']}（已保存）", style="yellow"))
         self.feedback.update(Text("\n").join(lines))
-        self.footer.update(Text("[Enter] 结束   [Ctrl+Q] 退出", style="dim"))
+        self.footer.update(
+            Text(
+                "[Enter] 返回主界面   [R] 继续复习   [N] 额外学习新词   [D] 错词强化",
+                style="dim",
+            )
+        )
         self.effects.emit(EffectEvent.SESSION_COMPLETED)
         if self.effects.runtime.decorative_animations:
             self._tte_animator = TTEAdapter(
@@ -517,28 +582,42 @@ class LexiLabSessionApp(App):
             event.stop()
             return
         if self._mode.startswith("recognition"):
+            # Textual may emit repeated key events while a key is held. Never
+            # let auto-repeat submit more than one rating for a card.
+            if getattr(event, "is_repeat", False):
+                event.stop()
+                return
             if key in {"q", "escape"}:
                 self._finish(RatingResult(quit=True, duration_ms=int((self._monotonic() - self._started) * 1000)))
-            elif key == "s":
-                self._emit_incorrect(skipped=True)
-                self._finish(RatingResult(skipped=True, duration_ms=int((self._monotonic() - self._started) * 1000)))
-            elif key == "f2":
+            elif key in {"p", "f2"}:
                 self._play_audio_current()
-            elif key in {"enter", "space"} and self._stage == "front":
-                self._reveal_recognition()
-            elif key in {"1", "2", "3", "4"} and self._stage == "back":
-                rating = int(key)
-                if rating >= 3:
-                    self.effects.emit(EffectEvent.ANSWER_CORRECT, hinted=self._hinted)
-                else:
-                    self.effects.emit(EffectEvent.ANSWER_INCORRECT, hinted=self._hinted)
-                self._finish(
-                    RatingResult(
-                        rating=rating,
-                        hinted=self._hinted,
-                        duration_ms=int((self._monotonic() - self._started) * 1000),
-                    )
+            elif key == "e" and self._stage in {"question", "check", "answer"}:
+                self._show_direction_details()
+            elif self._stage == "details" and key in {"enter", "space", "e", "escape"}:
+                self._stage = "question"
+                self.prompt.update(
+                    Text("↑\n不太确定\n\n←                  →\n不记得              容易", justify="center")
                 )
+                self.feedback.update(Text(""))
+                self.footer.update(
+                    Text("[←] 不记得   [↑] 核对   [→] 容易   [P] 发音   [E] 详情   [Esc] 返回", style="dim")
+                )
+            elif self._stage == "question":
+                if key == "right":
+                    self._finish_direction(4)
+                elif key == "left":
+                    self._show_answer_for_direction(check=False)
+                elif key == "up":
+                    self._pulse("yellow")
+                    self._show_answer_for_direction(check=True)
+            elif self._stage == "answer":
+                if key in {"enter", "space"}:
+                    self._finish_direction(1, revealed=True)
+            elif self._stage == "check":
+                if key == "left":
+                    self._finish_direction(1, revealed=True)
+                elif key == "right":
+                    self._finish_direction(2, revealed=True)
             event.stop()
             return
         if self._mode == "feedback":
@@ -565,10 +644,10 @@ class LexiLabSessionApp(App):
             event.stop()
             return
         if self._mode == "summary":
-            if key == "enter":
+            if key in {"enter", "q", "escape"}:
                 self._finish(None)
-            elif key == "q":
-                self._finish(None)
+            elif key in {"r", "n", "d"}:
+                self._finish({"r": "review", "n": "new", "d": "drill"}[key])
             event.stop()
 
     def _suggested_rating(self) -> int:
@@ -723,15 +802,25 @@ class LexiLabMenuApp(App):
         )
 
     def on_mount(self) -> None:
-        summary = self.context.analytics.summary()
-        self.query_one("#stats", Static).update(
-            Text(
-                f"待复习 {summary.get('due_count', 0)}   今日新词 {summary.get('today_new', 0)}   "
-                f"已学习 {summary.get('learned_total', 0)}   今日 {summary.get('today_minutes', 0)} min",
+        is_main = any(option_id == "study" for option_id, _ in self.options_data)
+        if is_main:
+            summary = self.context.analytics.summary()
+            target = self.context.settings.learning.new_words_per_day
+            review_target = max(int(summary.get("today_reviews", 0)), int(summary.get("due_count", 0)))
+            self.query_one("#stats", Static).update(
+                Text(
+                    f"今日新词 {summary.get('today_new', 0)}/{target}   "
+                    f"今日复习 {summary.get('today_reviews', 0)}/{review_target}   "
+                    f"学习时间 {summary.get('today_minutes', 0)} min   "
+                    f"进度 {round(float(summary.get('progress', 0)) * 100)}%"
+                )
             )
-        )
+        else:
+            self.query_one("#stats", Static).update(Text(" "))
         self._menu_widget.can_focus = True
         self._menu_widget.focus()
+        if self.options_data:
+            self._menu_widget.highlighted = 0
         if self.runtime.decorative_animations:
             animator = TTEAdapter(self, self.query_one("#logo", Static), "LexiLab", effect="decrypt", fps=30, max_frames=20)
             animator.start()
@@ -746,22 +835,15 @@ class LexiLabMenuApp(App):
             self.exit("q")
             event.stop()
             return
-        digit_map = {
-            "1": "review",
-            "2": "learn",
-            "3": "audio",
-            "4": "read",
-            "5": "write",
-            "6": "stats",
-            "7": "vocab",
-            "8": "screen",
-            "9": "materials",
-            "c": "config",
-        }
-        if key in digit_map:
+        if key.isdigit():
+            index = int(key) - 1
+            if 0 <= index < len(self.options_data):
+                self.exit(self.options_data[index][0])
+                event.stop()
+        elif key in {"s", "r"}:
             available = {option_id for option_id, _ in self.options_data}
-            if digit_map[key] in available:
-                self.exit(digit_map[key])
+            if key in available:
+                self.exit(key)
                 event.stop()
 
     def action_toggle_effects(self) -> None:

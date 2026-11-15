@@ -49,26 +49,24 @@ def test_default_capabilities_hide_ai_and_audio(context):
     assert caps["vocabulary"].state == CapabilityState.READY
     assert not ai_usable(caps)
     assert not audio_ready(caps)
-    assert menu_keys(caps) == {"1", "2", "6", "7", "8"}
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
-def test_audio_ready_adds_only_audio_entry(context):
+def test_audio_ready_does_not_add_main_menu_entry(context):
     context.settings.audio.enabled = True
     caps = registry(context, audio=FakeAudio()).collect()
     assert caps["tts"].state == CapabilityState.READY
     assert audio_ready(caps)
-    assert "3" in menu_keys(caps)
-    assert "4" not in menu_keys(caps)
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
-def test_ai_mock_ready_adds_ai_entries(context):
+def test_ai_mock_ready_does_not_add_main_menu_entry(context):
     context.settings.ai.enabled = True
     context.settings.ai.provider = "mock"
     context.settings.ai.model = "mock-v1"
     caps = registry(context, audio=FakeAudio(False, False)).collect()
     assert caps["ai"].state == CapabilityState.READY
-    assert {"4", "5"}.issubset(menu_keys(caps))
-    assert "3" not in menu_keys(caps)
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
 def test_ai_unconfigured_without_model(context):
@@ -77,7 +75,7 @@ def test_ai_unconfigured_without_model(context):
     context.settings.ai.model = ""
     caps = registry(context).collect()
     assert caps["ai"].state == CapabilityState.UNCONFIGURED
-    assert "4" not in menu_keys(caps)
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
 def test_ai_unavailable_without_openai_dependency(context, monkeypatch):
@@ -92,10 +90,10 @@ def test_ai_unavailable_without_openai_dependency(context, monkeypatch):
     )
     caps = registry(context).collect()
     assert caps["ai"].state == CapabilityState.UNAVAILABLE
-    assert "4" not in menu_keys(caps)
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
-def test_ai_error_is_retryable_but_still_visible(context):
+def test_ai_error_is_retryable_but_not_main_menu_entry(context):
     context.settings.ai.enabled = True
     context.settings.ai.provider = "mock"
     context.settings.ai.model = "mock-v1"
@@ -110,10 +108,10 @@ def test_ai_error_is_retryable_but_still_visible(context):
     caps = registry(context).collect()
     assert caps["ai"].state == CapabilityState.ERROR
     assert ai_usable(caps)
-    assert {"4", "5"}.issubset(menu_keys(caps))
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
-def test_cached_material_adds_offline_entry(context):
+def test_cached_material_does_not_add_main_menu_entry(context):
     context.repo.save_material(
         kind="reading",
         target_words=["mitigate"],
@@ -127,10 +125,10 @@ def test_cached_material_adds_offline_entry(context):
     )
     caps = registry(context).collect()
     assert caps["cached_materials"].ready
-    assert "9" in menu_keys(caps)
+    assert menu_keys(caps) == {"study", "settings", "q"}
 
 
-def test_menu_rendering_hides_unavailable_entries(context):
+def test_menu_rendering_has_only_three_entries(context):
     context.settings.ai.enabled = False
     context.settings.audio.enabled = False
     caps = registry(context).collect()
@@ -138,10 +136,12 @@ def test_menu_rendering_hides_unavailable_entries(context):
     console = Console(file=buffer, width=100, force_terminal=False)
     render_main_menu(console, {}, caps)
     output = buffer.getvalue()
-    assert "[1] 单词复习" in output
-    assert "[c] 配置" in output
-    assert "[4] AI 阅读" not in output
-    assert "[3] 听音辨义" not in output
+    assert "开始今日学习" in output
+    assert "设置" in output
+    assert "退出" in output
+    assert "单词复习" not in output
+    assert "AI 阅读" not in output
+    assert "快速筛选" not in output
 
 
 def test_narrow_menu_does_not_crash(context):

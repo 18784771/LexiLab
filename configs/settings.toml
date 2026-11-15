@@ -6,8 +6,13 @@ data_dir = "data"
 timezone = "local"
 
 [learning]
-new_words_per_day = 10
+new_words_per_day = 20
 daily_minutes = 30
+plan_order = "new_first"
+adaptive_new_words = true
+delayed_recall = true
+mistake_drill = true
+enable_drills = true
 desired_retention = 0.90
 max_reviews_per_session = 80
 pause_new_when_due_over = 60
@@ -18,6 +23,23 @@ new_word_seconds = 70
 reading_target_min = 5
 reading_target_max = 10
 screen_verify_days = [1, 3, 7, 14, 30, 90]
+# smart | frequency | related | alphabetical
+new_word_order = "smart"
+
+[relations]
+enabled = true
+wordnet_enabled = true
+rapidfuzz_enabled = true
+
+[relations.spelling]
+max_neighbors = 10
+similarity_threshold = 0.80
+
+[relations.learning]
+frequency_weight = 1.0
+relatedness_weight = 0.5
+interference_penalty = 0.8
+confusion_priority = 1.0
 
 [ai]
 # AI 是可选的增强功能；默认关闭。启用前不会发起任何模型请求。
@@ -58,4 +80,4 @@ pulse_on_correct = true
 combo = true
 startup_animation = true
 reduced_motion = false
-max_particles = 240
+max_particles = 120

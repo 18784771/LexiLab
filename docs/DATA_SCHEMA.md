@@ -46,6 +46,48 @@
 - `source_metadata(key PRIMARY KEY, value)`：下载 URL、内容 SHA-256、抓取时间、上游说明。
 - `screening` 不在词库库；属于学习库。
 
+### vocab_relations（静态词汇关系）
+
+```sql
+CREATE TABLE vocab_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_word TEXT NOT NULL,
+    target_word TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    source_sense TEXT NOT NULL DEFAULT '',
+    target_sense TEXT NOT NULL DEFAULT '',
+    part_of_speech TEXT NOT NULL DEFAULT '',
+    score REAL,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(source_word, target_word, relation_type, source_sense, target_sense, source)
+);
+```
+
+- `source`：`wordnet` / `rapidfuzz`。
+- `source_sense` / `target_sense`：WordNet synset（如 `mitigate.v.02`）；多义词不合并。
+- 形近词为对称关系，双向写入；查询无需再做无向展开。
+- 索引：`source_word`、`target_word`、`score`。
+- `relation_build_state(word_key, wordnet_built_at, spelling_built_at, updated_at)` 支持增量构建。
+- `word_metrics(word_key, frq, bnc, collins, oxford, updated_at)` 是 ECDICT 的轻量排序缓存，避免每次计划生成扫描 77 万行 ECDICT。
+
+### learning.db 的个人混淆
+
+```sql
+CREATE TABLE confusion_pairs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_word TEXT NOT NULL,
+    target_word TEXT NOT NULL,
+    skill TEXT NOT NULL DEFAULT 'recall',
+    count INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    UNIQUE(source_word, target_word)
+);
+```
+
+只有用户输入了另一个真实存在的单词时才记录，例如 `adapt → adopt`；不存在的拼写只进入 `training_logs/word_errors`。该表属于学习记录，词库重导入或关系重建不会删除它。
+
 ### ecdict
 
 | 列 | 说明 |

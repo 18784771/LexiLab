@@ -34,13 +34,12 @@ def test_textual_new_word_session_is_keyboard_only(tmp_path):
     async def run():
         async with app.run_test(size=(100, 30)) as pilot:
             await pilot.pause(0.2)
-            await pilot.press("3")
+            # Intro: unknown -> show answer -> Enter; delayed recall: easy -> next.
+            await pilot.press("left")
             await pilot.pause(0.1)
             await pilot.press("enter")
-            await pilot.pause(0.1)
-            await pilot.press("space")
-            await pilot.pause(0.1)
-            await pilot.press("3")
+            await pilot.pause(0.2)
+            await pilot.press("right")
             await pilot.pause(0.3)
             assert app._mode == "summary"
             await pilot.press("enter")
@@ -124,6 +123,20 @@ def test_ctrl_q_keeps_pending_item(tmp_path):
     asyncio.run(run())
     assert ctx.repo.db.scalar("SELECT COUNT(*) FROM review_logs", (), 0) == 0
     assert len(ctx.repo.pending_items(sid)) == 1
+
+
+def test_textual_menu_default_focus_starts_today_lesson(tmp_path):
+    ctx = make_context(tmp_path)
+    app = LexiLabMenuApp(ctx, [("study", "开始今日学习"), ("settings", "设置"), ("q", "退出")])
+
+    async def run():
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause(0.2)
+            await pilot.press("enter")
+            await pilot.pause(0.1)
+        return app.return_value
+
+    assert asyncio.run(run()) == "study"
 
 
 def test_textual_menu_uses_arrows_and_digits(tmp_path):
